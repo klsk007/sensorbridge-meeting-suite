@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "locked_at": "2026-06-26",
+  "components": [
+    {
+      "name": "VCamSample",
+      "commit": "ae42a88dce8e9a631998a54d36b8ad17fe2bfb1a"
+    },
+    {
+      "name": "softcam",
+      "commit": "66fcac8726c26265fdf5da2f1ebc0b01559727c5"
+    },
+    {
+      "name": "libusbmuxd",
+      "commit": "93eb168bf6b07472d17781328c21df0c60300524"
+    },
+    {
+      "name": "usbmuxd",
+      "commit": "3ded00c9985a5108cfc7591a309f9a23d57a8cba"
+    }
+  ]
+}

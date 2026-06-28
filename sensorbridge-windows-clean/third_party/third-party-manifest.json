@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "components": [
+    {
+      "name": "VCamSample",
+      "repository": "https://github.com/smourier/VCamSample.git",
+      "license": "MIT",
+      "purpose": "Windows Media Foundation virtual camera prototype",
+      "path": "src/VCamSample",
+      "required_for": [
+        "virtual-camera-dev"
+      ],
+      "notes": "Requires Visual Studio C++ tools, Windows SDK, administrator registration, and a SensorBridge frame-source adapter."
+    },
+    {
+      "name": "softcam",
+      "repository": "https://github.com/tshino/softcam.git",
+      "license": "MIT",
+      "purpose": "Windows 10-compatible DirectShow virtual camera provider for SensorBridge Camera",
+      "path": "src/softcam",
+      "required_for": [
+        "virtual-camera-directshow"
+      ],
+      "notes": "DirectShow Video Input Device filter with sender API and installer example. Requires Visual Studio C++ tools, Windows SDK, administrator registration, and SensorBridge sender integration."
+    },
+    {
+      "name": "libusbmuxd",
+      "repository": "https://github.com/libimobiledevice/libusbmuxd.git",
+      "license": "LGPL-2.1+ project family",
+      "purpose": "USBMux client and proxy tooling for future USB transport",
+      "path": "src/libusbmuxd",
+      "required_for": [
+        "usbmux-transport"
+      ],
+      "notes": "Windows normally also depends on Apple Mobile Device Support or a compatible usbmux service."
+    },
+    {
+      "name": "usbmuxd",
+      "repository": "https://github.com/libimobiledevice/usbmuxd.git",
+      "license": "GPL-2.0/GPL-3.0",
+      "purpose": "Reference usbmux daemon source for design comparison",
+      "path": "src/usbmuxd",
+      "required_for": [
+        "usbmux-reference"
+      ],
+      "notes": "Not treated as the default Windows daemon replacement; license and platform limits must be reviewed before redistribution."
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python-tests:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component:
+          - sensorbridge-windows-clean
+          - sensorbridge-microphone-windows
+          - sensorbridge-speaker-windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package
+        working-directory: ${{ matrix.component }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Run tests
+        working-directory: ${{ matrix.component }}
+        run: python -m pytest -q
+
+  meeting-app-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build unified Windows app
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\meeting-suite\windows-app\SensorBridge.Meeting.App\build.ps1 -Json
+      - name: Check meeting readiness script syntax
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\meeting-suite\Test-SensorBridgeMeeting.ps1 -SkipRuntime
+      - name: Run meeting suite tests
+        run: python -m pytest -q tests

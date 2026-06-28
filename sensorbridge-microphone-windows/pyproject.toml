@@ -1,0 +1,18 @@
+[project]
+name = "sensorbridge-microphone-windows"
+version = "0.1.0"
+description = "Microphone-only Windows client for SensorBridge iPhone/iPad audio."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["aiortc>=1.14", "av>=16.0", "numpy>=1.26", "sounddevice>=0.5.5"]
+
+[tool.setuptools]
+py-modules = ["bridge"]
+packages = ["bridgeclient"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

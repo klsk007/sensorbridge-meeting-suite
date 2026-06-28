@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "components": [
+    {
+      "name": "Windows-driver-samples",
+      "repository": "https://github.com/microsoft/Windows-driver-samples.git",
+      "license": "MIT",
+      "purpose": "SysVAD virtual audio endpoint base for the SensorBridge virtual microphone",
+      "path": "src/Windows-driver-samples",
+      "subpath": "audio/sysvad",
+      "sparse_paths": [
+        "audio/sysvad",
+        "wil"
+      ],
+      "submodules": [
+        "wil"
+      ],
+      "required_for": [
+        "virtual-microphone-dev"
+      ],
+      "notes": "Requires Visual Studio, WDK, administrator installation, test signing for development, and production driver signing before distribution."
+    },
+    {
+      "name": "libusbmuxd",
+      "repository": "https://github.com/libimobiledevice/libusbmuxd.git",
+      "license": "LGPL-2.1+ project family",
+      "purpose": "Optional USBMux client and proxy tooling for USB transport.",
+      "path": "src/libusbmuxd",
+      "required_for": [
+        "usbmux-transport"
+      ],
+      "notes": "Windows normally also depends on Apple Mobile Device Support or a compatible usbmux service."
+    }
+  ]
+}

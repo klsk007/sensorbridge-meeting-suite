@@ -1,0 +1,33 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+captures/
+logs/
+*.log
+*.zip
+*.wav
+*.pcm
+*.jsonl
+
+# Windows build outputs
+bin/
+obj/
+x64/
+x86/
+Debug/
+Release/
+
+# Local tooling
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Keep downloaded/vendor archives out of the GitHub project by default.
+downloads/
+.git-nested-backups/

@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SensorBridge Camera</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body data-page="dashboard">
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Windows Receiver</p>
+      <h1>SensorBridge Camera</h1>
+    </div>
+    <div class="topbar-actions">
+      <div class="status-pill" id="connectionStatus">Starting</div>
+    </div>
+  </header>
+
+  <main class="dashboard-grid camera-only-grid">
+    <section class="panel preview-panel">
+      <div class="section-title">
+        <h2>Live Preview</h2>
+        <span id="previewStatus">-</span>
+      </div>
+      <div class="preview-frame">
+        <img id="cameraPreview" alt="SensorBridge Camera preview">
+      </div>
+      <div class="actions-row preview-actions">
+        <button id="capturePhoto" type="button">Capture Photo</button>
+        <button id="refreshPreview" class="ghost-button" type="button">Refresh Preview</button>
+      </div>
+      <p class="meta-line" id="photoSaveStatus">-</p>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">
+        <h2>iPad Camera</h2>
+        <span id="productOverallStatus">-</span>
+      </div>
+      <div class="url-stack">
+        <label>
+          <span>iPad SensorBridge URL</span>
+          <input id="upstreamBaseUrl" placeholder="http://ipad-ip:27180">
+        </label>
+      </div>
+      <div class="actions-row">
+        <button id="saveUpstream" type="button">Save</button>
+        <button id="checkUpstream" class="ghost-button" type="button">Check</button>
+        <button id="startProductMode" type="button">Start Camera</button>
+      </div>
+      <dl class="sensor-grid">
+        <div>
+          <dt>Transport</dt>
+          <dd id="activeCameraTransport">-</dd>
+        </div>
+        <div>
+          <dt>Camera</dt>
+          <dd id="productCameraStatus">-</dd>
+        </div>
+        <div>
+          <dt>Windows Camera visible</dt>
+          <dd id="normalWindowsCameraVisible">-</dd>
+        </div>
+      </dl>
+      <p class="meta-line" id="productBlockersStatus">-</p>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">
+        <h2>WebRTC Receiver</h2>
+        <span id="webrtcCompleteStatus">-</span>
+      </div>
+      <dl class="sensor-grid">
+        <div>
+          <dt>Runtime</dt>
+          <dd id="webrtcRuntimeStatus">-</dd>
+        </div>
+        <div>
+          <dt>Signaling</dt>
+          <dd id="webrtcSignalingStatus">-</dd>
+        </div>
+        <div>
+          <dt>ICE</dt>
+          <dd id="webrtcIceStatus">-</dd>
+        </div>
+        <div>
+          <dt>receivedFps</dt>
+          <dd id="receivedFps">-</dd>
+        </div>
+        <div>
+          <dt>decodedFps</dt>
+          <dd id="decodedFps">-</dd>
+        </div>
+        <div>
+          <dt>virtualCameraFps</dt>
+          <dd id="virtualCameraFps">-</dd>
+        </div>
+        <div>
+          <dt>latestFrameAgeMs</dt>
+          <dd id="latestFrameAgeMs">-</dd>
+        </div>
+        <div>
+          <dt>estimatedLatencyMs</dt>
+          <dd id="estimatedLatencyMs">-</dd>
+        </div>
+        <div>
+          <dt>droppedFrames</dt>
+          <dd id="droppedFrames">-</dd>
+        </div>
+      </dl>
+      <p class="meta-line" id="webrtcFallbackStatus">-</p>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">
+        <h2>Windows Virtual Camera</h2>
+        <span id="virtualCameraStatus">-</span>
+      </div>
+      <div class="actions-row">
+        <button id="registerCameraProvider" type="button">Setup Camera</button>
+        <button id="startCameraProvider" type="button">Start Provider</button>
+        <button id="stopCameraProvider" class="ghost-button" type="button">Stop Provider</button>
+      </div>
+      <dl class="sensor-grid">
+        <div>
+          <dt>Provider</dt>
+          <dd id="cameraProviderStatus">-</dd>
+        </div>
+        <div>
+          <dt>Windows app camera</dt>
+          <dd id="windowsAppCameraStatus">-</dd>
+        </div>
+        <div>
+          <dt>Frame sink</dt>
+          <dd id="cameraSinkStatus">-</dd>
+        </div>
+      </dl>
+      <p class="meta-line" id="systemDeviceNote">-</p>
+    </section>
+  </main>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>
