@@ -68,7 +68,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\meeting-suite\Test-SensorB
 
 ## GitHub Publishing
 
-This folder is already a local Git repository. After reviewing the generated project files, create the GitHub remote from your GitHub account and push:
+This folder is already a local Git repository on `main`.
+
+If GitHub CLI is installed and authenticated:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Publish-ToGitHub.ps1 -Repository sensorbridge-meeting-suite
+```
+
+For a private repository:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Publish-ToGitHub.ps1 -Repository sensorbridge-meeting-suite -Private
+```
+
+If you already created an empty GitHub repository in the browser:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Publish-ToGitHub.ps1 -RemoteUrl https://github.com/<owner>/sensorbridge-meeting-suite.git
+```
+
+Manual equivalent:
 
 ```powershell
 git add .
