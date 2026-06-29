@@ -21,6 +21,7 @@ from bridgeclient.webrtc_microphone import (
     _apply_low_cut_filter,
     _apply_noise_gate,
     _apply_output_gain,
+    _apply_push_to_talk_gate,
     _audio_frame_to_s16le,
     _capture_level_status,
     _close_diagnostic_capture_writers,
@@ -1229,6 +1230,25 @@ def test_record_output_samples_tracks_processed_level() -> None:
 
     assert state.output_peak_abs == 400
     assert state.output_rms > 0
+
+
+def test_push_to_talk_gate_defaults_to_silence_until_control_file_allows_audio(tmp_path: Path) -> None:
+    state = _AudioReceiverState()
+    state.push_to_talk_control_path = str(tmp_path / "push_to_talk.json")
+    state.push_to_talk_default_muted = True
+    samples = np.array([[100, -200], [300, -400]], dtype=np.int16)
+
+    muted = _apply_push_to_talk_gate(np, samples, state)
+
+    assert muted.tolist() == [[0, 0], [0, 0]]
+    assert state._push_to_talk_muted_frames == 2
+
+    Path(state.push_to_talk_control_path).write_bytes(b'\xef\xbb\xbf{"talking": true}')
+    state._push_to_talk_last_check_at = 0.0
+
+    open_audio = _apply_push_to_talk_gate(np, samples, state)
+
+    assert open_audio.tolist() == samples.tolist()
 
 
 def test_noise_gate_attenuates_low_level_frames() -> None:

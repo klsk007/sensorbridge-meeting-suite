@@ -4,10 +4,19 @@ param(
     [switch]$NoCamera,
     [switch]$NoMicrophone,
     [switch]$NoSpeaker,
+    [ValidateSet("vbcable", "webrtc")]
+    [string]$MicrophoneMode = "webrtc",
+    [ValidateSet("http", "webrtc")]
+    [string]$SpeakerMode = "webrtc",
     [double]$MicGain = 1.0,
+    [string]$CableInputDevice = "CABLE Input",
+    [string]$SpeakerCaptureDevice = "CABLE Output",
     [int]$LowCutHz = 80,
     [double]$NoiseGateThreshold = 0.0,
-    [int]$PlaybackPrebufferMs = 1500
+    [int]$PlaybackPrebufferMs = 2500,
+    [double]$SpeakerGain = 0.35,
+    [switch]$PushToTalk,
+    [string]$PushToTalkControlPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,6 +24,26 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $LogDir = Join-Path $Root "logs\meeting-suite"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+if ([string]::IsNullOrWhiteSpace($PushToTalkControlPath)) {
+    $PushToTalkControlPath = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)) "SensorBridge\meeting\push_to_talk.json"
+}
+
+function Write-PushToTalkControl {
+    param(
+        [string]$Path,
+        [bool]$Talking
+    )
+
+    $directory = Split-Path -Parent $Path
+    if ($directory) {
+        New-Item -ItemType Directory -Force -Path $directory | Out-Null
+    }
+    $payload = @{
+        talking = $Talking
+        updatedAt = [DateTimeOffset]::UtcNow.ToString("o")
+    } | ConvertTo-Json -Compress
+    [System.IO.File]::WriteAllText($Path, $payload, [System.Text.UTF8Encoding]::new($false))
+}
 
 function Resolve-PythonCommand {
     $py = Get-Command py -ErrorAction SilentlyContinue
@@ -33,6 +62,38 @@ function Resolve-PythonCommand {
     throw "Python was not found. Install Python 3.10+ or add it to PATH."
 }
 
+function Quote-ProcessArgument {
+    param([string]$Value)
+
+    if ($Value -match '[\s"]') {
+        return '"' + ($Value -replace '"', '\"') + '"'
+    }
+    return $Value
+}
+
+function Join-ProcessArguments {
+    param([string[]]$ArgumentList)
+
+    return (($ArgumentList | ForEach-Object { Quote-ProcessArgument $_ }) -join " ")
+}
+
+function Start-DetachedProcess {
+    param(
+        [string]$FilePath,
+        [string]$WorkingDirectory,
+        [string[]]$Arguments
+    )
+
+    $startup = ([wmiclass]"Win32_ProcessStartup").CreateInstance()
+    $startup.ShowWindow = 0
+    $commandLine = (Quote-ProcessArgument $FilePath) + " " + (Join-ProcessArguments $Arguments)
+    $result = ([wmiclass]"Win32_Process").Create($commandLine, $WorkingDirectory, $startup)
+    if ([int]$result.ReturnValue -ne 0) {
+        throw "Failed to start $FilePath with Win32_Process.Create return code $($result.ReturnValue)."
+    }
+    return [int]$result.ProcessId
+}
+
 function Start-BridgeProcess {
     param(
         [string]$Name,
@@ -44,22 +105,17 @@ function Start-BridgeProcess {
         throw "Missing component directory for $Name`: $WorkingDirectory"
     }
 
-    $stdout = Join-Path $LogDir "$Name.out.log"
-    $stderr = Join-Path $LogDir "$Name.err.log"
-    $process = Start-Process `
+    $processId = Start-DetachedProcess `
         -FilePath $Python.File `
-        -ArgumentList ($Python.Prefix + $Arguments) `
         -WorkingDirectory $WorkingDirectory `
-        -RedirectStandardOutput $stdout `
-        -RedirectStandardError $stderr `
-        -PassThru
+        -Arguments ($Python.Prefix + $Arguments)
 
     [pscustomobject]@{
         name = $Name
-        pid = $process.Id
+        pid = $processId
         cwd = $WorkingDirectory
-        stdout = $stdout
-        stderr = $stderr
+        stdout = $null
+        stderr = $null
     }
 }
 
@@ -79,6 +135,93 @@ function Wait-HttpReady {
         }
     } while ((Get-Date) -lt $deadline)
     return $false
+}
+
+function Get-CameraPortOwners {
+    param([int]$Port)
+
+    $connections = @()
+    try {
+        $connections = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+    } catch {
+        return @()
+    }
+
+    $owners = @()
+    foreach ($connection in $connections) {
+        $ownerPid = [int]$connection.OwningProcess
+        $process = $null
+        try {
+            $process = Get-CimInstance Win32_Process -Filter "ProcessId = $ownerPid" -ErrorAction SilentlyContinue
+        } catch {
+            $process = $null
+        }
+
+        $owners += [pscustomobject]@{
+            processId = $ownerPid
+            name = if ($process) { $process.Name } else { $null }
+            executablePath = if ($process) { $process.ExecutablePath } else { $null }
+            commandLine = if ($process) { $process.CommandLine } else { $null }
+        }
+    }
+
+    return @($owners | Sort-Object processId -Unique)
+}
+
+function Assert-CameraPortAvailable {
+    param([int]$Port)
+
+    $owners = @(Get-CameraPortOwners -Port $Port)
+    if ($owners.Count -eq 0) { return }
+
+    $ownerDetails = ($owners | ForEach-Object {
+        $parts = @("PID=$($_.processId)")
+        if ($_.name) { $parts += "name=$($_.name)" }
+        if ($_.executablePath) { $parts += "path=$($_.executablePath)" }
+        if ($_.commandLine) { $parts += "command=$($_.commandLine)" }
+        $parts -join ", "
+    }) -join " | "
+
+    throw "Camera local port $Port is already in use. Close the older SensorBridge app, or change CameraPort, then start again. Owner: $ownerDetails"
+}
+
+function Wait-CameraProductReady {
+    param(
+        [string]$BaseUrl,
+        [int]$TimeoutSeconds = 10
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastStatus = $null
+    $lastError = $null
+    do {
+        try {
+            $lastStatus = Invoke-RestMethod -Uri "$BaseUrl/api/v1/product/status" -TimeoutSec 3
+            $ready = (
+                [bool]$lastStatus.cameraAvailable -and
+                [bool]$lastStatus.normalWindowsCameraVisible -and
+                [double]$lastStatus.receivedFps -gt 0 -and
+                [double]$lastStatus.decodedFps -gt 0 -and
+                [double]$lastStatus.virtualCameraFps -gt 0
+            )
+            if ($ready) {
+                return @{
+                    ready = $true
+                    status = $lastStatus
+                    error = $null
+                }
+            }
+        } catch {
+            $lastError = $_.Exception.Message
+        }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $deadline)
+
+    return @{
+        ready = $false
+        status = $lastStatus
+        error = $lastError
+    }
 }
 
 function Start-CameraProductMode {
@@ -112,17 +255,24 @@ function Start-CameraProductMode {
 
     try {
         $productStart = Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/product/start" -Body "{}" -ContentType "application/json" -TimeoutSec 30
+        $readiness = Wait-CameraProductReady -BaseUrl $baseUrl -TimeoutSeconds 10
+        $status = if ($readiness.status) { $readiness.status } else { $productStart.product_status }
         return @{
-            ok = [bool]$productStart.ok
+            ok = ([bool]$productStart.ok -and [bool]$readiness.ready)
+            productStartOk = [bool]$productStart.ok
+            cameraReady = [bool]$readiness.ready
             virtualDevice = $virtualDevice
             mediaStart = $mediaStart
-            cameraAvailable = [bool]$productStart.webrtc_connect.cameraAvailable
+            cameraAvailable = [bool]$status.cameraAvailable
             directshowSenderOk = [bool]$productStart.directshow_sender.ok
             directshowSenderRunning = [bool]$productStart.directshow_sender.running
-            receivedFps = $productStart.product_status.receivedFps
-            decodedFps = $productStart.product_status.decodedFps
-            virtualCameraFps = $productStart.product_status.virtualCameraFps
-            blockers = $productStart.product_status.blockers
+            normalWindowsCameraVisible = [bool]$status.normalWindowsCameraVisible
+            receivedFps = $status.receivedFps
+            decodedFps = $status.decodedFps
+            virtualCameraFps = $status.virtualCameraFps
+            latestFrameAgeMs = $status.latestFrameAgeMs
+            blockers = $status.blockers
+            readinessError = $readiness.error
         }
     } catch {
         return @{
@@ -175,9 +325,12 @@ function Ensure-CameraVirtualDevice {
     $senderScript = Join-Path $directshowRoot "drivers\camera\directshow\sender-dev.ps1"
     $buildScript = Join-Path $directshowRoot "drivers\camera\directshow\build-dev.ps1"
     $registerScript = Join-Path $directshowRoot "drivers\camera\directshow\register-dev.ps1"
+    $probeScript = Join-Path $directshowRoot "tools\directshow-device-probe.ps1"
 
     $senderStatus = Invoke-JsonScript -ScriptPath $senderScript -Arguments @("-Status") -TimeoutSeconds 45
     $build = $null
+    $senderBuild = $null
+    $senderStart = $null
     $register = $null
     if (-not [bool]$senderStatus.exe_exists) {
         $build = Invoke-JsonScript -ScriptPath $buildScript -Arguments @("-Build") -TimeoutSeconds 240
@@ -185,60 +338,206 @@ function Ensure-CameraVirtualDevice {
         $senderStatus = Invoke-JsonScript -ScriptPath $senderScript -Arguments @("-Status") -TimeoutSeconds 45
     }
 
-    $registerStatus = Invoke-JsonScript -ScriptPath $registerScript -Arguments @("-Status") -TimeoutSeconds 60
-    if (-not [bool]$registerStatus.registered_after -or -not [bool]$registerStatus.visible_to_windows_apps) {
+    if (-not [bool]$senderStatus.running) {
+        $senderStart = Invoke-JsonScript -ScriptPath $senderScript -Arguments @("-Start") -TimeoutSeconds 60
+        $senderStatus = Invoke-JsonScript -ScriptPath $senderScript -Arguments @("-Status") -TimeoutSeconds 45
+    }
+
+    $probe = Invoke-JsonScript -ScriptPath $probeScript -Arguments @() -TimeoutSeconds 45
+    $cameraVisible = $false
+    foreach ($device in @($probe.videoInput)) {
+        if (("{0}" -f $device.name) -like "*SensorBridge Camera*") {
+            $cameraVisible = $true
+        }
+    }
+
+    if (-not $cameraVisible) {
         $register = Invoke-JsonScript -ScriptPath $registerScript -Arguments @("-Register") -TimeoutSeconds 120
-        $registerStatus = Invoke-JsonScript -ScriptPath $registerScript -Arguments @("-Status") -TimeoutSeconds 60
+        $probe = Invoke-JsonScript -ScriptPath $probeScript -Arguments @() -TimeoutSeconds 45
+        $cameraVisible = $false
+        foreach ($device in @($probe.videoInput)) {
+            if (("{0}" -f $device.name) -like "*SensorBridge Camera*") {
+                $cameraVisible = $true
+            }
+        }
     }
 
     return @{
         senderExeExists = [bool]$senderStatus.exe_exists
         senderRunning = [bool]$senderStatus.running
-        registered = [bool]$registerStatus.registered_after
-        visibleToWindowsApps = [bool]$registerStatus.visible_to_windows_apps
+        visibleToWindowsApps = $cameraVisible
         build = $build
+        senderBuild = $senderBuild
+        senderStart = $senderStart
         register = $register
+        probe = $probe
     }
 }
 
 $Python = Resolve-PythonCommand
 $Started = @()
+$UseWebRtcMicrophone = (-not $NoMicrophone -and $MicrophoneMode -eq "webrtc")
+$UseWebRtcSpeaker = (-not $NoSpeaker -and $SpeakerMode -eq "webrtc")
+$UseCombinedAudio = ($UseWebRtcMicrophone -and $UseWebRtcSpeaker)
+$UseCombinedMedia = (-not $NoCamera -and ($UseWebRtcMicrophone -or $UseWebRtcSpeaker))
+$UseCombinedBridge = ($UseCombinedAudio -or $UseCombinedMedia)
 
-if (-not $NoCamera) {
+if ($PushToTalk -and -not $NoMicrophone) {
+    Write-PushToTalkControl -Path $PushToTalkControlPath -Talking $false
+}
+
+if (-not $NoCamera -and -not $UseCombinedBridge) {
+    Assert-CameraPortAvailable -Port $CameraPort
+}
+
+if (-not $NoCamera -and -not $UseCombinedBridge) {
     $camera = Start-BridgeProcess `
         -Name "camera" `
         -WorkingDirectory (Join-Path $Root "sensorbridge-windows-clean") `
-        -Arguments @("sensorbridge.py", "--port", "$CameraPort", "--upstream-url", $IpadBaseUrl)
+        -Arguments @((Join-Path $Root "sensorbridge-windows-clean\sensorbridge.py"), "--port", "$CameraPort", "--upstream-url", $IpadBaseUrl)
     $camera | Add-Member -NotePropertyName productStart -NotePropertyValue (Start-CameraProductMode -Port $CameraPort -UpstreamBaseUrl $IpadBaseUrl)
     $Started += $camera
 }
 
-if (-not $NoMicrophone) {
-    $Started += Start-BridgeProcess `
-        -Name "microphone" `
-        -WorkingDirectory (Join-Path $Root "sensorbridge-microphone-windows") `
-        -Arguments @(
-            "bridge.py",
+if ($UseCombinedBridge) {
+    $virtualDevice = $null
+    if ($UseCombinedMedia) {
+        $virtualDevice = Ensure-CameraVirtualDevice
+    }
+    $audioArgs = @(
+        (Join-Path $Root "meeting-suite\meeting_audio_bridge.py"),
+        "--base-url", $IpadBaseUrl,
+        "--output-device", $CableInputDevice,
+        "--capture-device", $SpeakerCaptureDevice,
+        "--duration-seconds", "0",
+        "--mic-gain", "$MicGain",
+        "--low-cut-hz", "$LowCutHz",
+        "--noise-gate-threshold", "$NoiseGateThreshold",
+        "--playback-prebuffer-ms", "$PlaybackPrebufferMs",
+        "--speaker-gain", "$SpeakerGain"
+    )
+    if ($UseCombinedMedia) {
+        $audioArgs += "--enable-video"
+    }
+    if ($NoMicrophone -or $MicrophoneMode -ne "webrtc") {
+        $audioArgs += "--no-microphone"
+    }
+    if ($NoSpeaker -or $SpeakerMode -ne "webrtc") {
+        $audioArgs += "--no-speaker"
+    }
+    if ($PushToTalk -and -not $NoMicrophone) {
+        $audioArgs += "--push-to-talk-control"
+        $audioArgs += $PushToTalkControlPath
+        $audioArgs += "--push-to-talk-default-muted"
+    }
+    $audioArgs += "webrtc-duplex"
+    $audio = Start-BridgeProcess `
+        -Name "meeting-media" `
+        -WorkingDirectory (Join-Path $Root "meeting-suite") `
+        -Arguments $audioArgs
+    $audio | Add-Member -NotePropertyName mode -NotePropertyValue "webrtc-duplex"
+    if ($UseCombinedMedia) {
+        $camera = [pscustomobject]@{
+            name = "camera"
+            pid = $audio.pid
+            cwd = $audio.cwd
+            stdout = $audio.stdout
+            stderr = $audio.stderr
+            mode = "webrtc-duplex"
+            combinedMedia = $true
+            virtualDevice = $virtualDevice
+        }
+        $Started += $camera
+    }
+    if (-not $NoMicrophone) {
+        $microphone = [pscustomobject]@{
+            name = "microphone"
+            pid = $audio.pid
+            cwd = $audio.cwd
+            stdout = $audio.stdout
+            stderr = $audio.stderr
+            mode = "webrtc-duplex"
+            combinedAudio = $true
+        }
+        $Started += $microphone
+    }
+    if (-not $NoSpeaker) {
+        $speaker = [pscustomobject]@{
+            name = "speaker"
+            pid = $audio.pid
+            cwd = $audio.cwd
+            stdout = $audio.stdout
+            stderr = $audio.stderr
+            mode = "webrtc-duplex"
+            combinedAudio = $true
+        }
+        $Started += $speaker
+    }
+} elseif (-not $NoMicrophone) {
+    if ($MicrophoneMode -eq "webrtc") {
+        $microphoneArgs = @(
+            (Join-Path $Root "sensorbridge-microphone-windows\bridge.py"),
             "--base-url", $IpadBaseUrl,
             "--duration-seconds", "0",
+            "--output-device", $CableInputDevice,
             "--output-gain", "$MicGain",
             "--low-cut-hz", "$LowCutHz",
             "--noise-gate-threshold", "$NoiseGateThreshold",
-            "--playback-prebuffer-ms", "$PlaybackPrebufferMs",
-            "webrtc-microphone"
+            "--playback-prebuffer-ms", "$PlaybackPrebufferMs"
         )
+        if ($PushToTalk) {
+            $microphoneArgs += "--push-to-talk-control"
+            $microphoneArgs += $PushToTalkControlPath
+            $microphoneArgs += "--push-to-talk-default-muted"
+        }
+        $microphoneArgs += "webrtc-microphone"
+        $microphone = Start-BridgeProcess `
+            -Name "microphone" `
+            -WorkingDirectory (Join-Path $Root "sensorbridge-microphone-windows") `
+            -Arguments $microphoneArgs
+    } else {
+        $microphone = Start-BridgeProcess `
+            -Name "microphone" `
+            -WorkingDirectory (Join-Path $Root "sensorbridge-microphone-windows") `
+            -Arguments @(
+                (Join-Path $Root "sensorbridge-microphone-windows\bridge.py"),
+                "--base-url", $IpadBaseUrl,
+                "--frames", "0",
+                "--output-device", $CableInputDevice,
+                "pump-vbcable"
+            )
+    }
+    $microphone | Add-Member -NotePropertyName mode -NotePropertyValue $MicrophoneMode
+    $Started += $microphone
 }
 
-if (-not $NoSpeaker) {
-    $Started += Start-BridgeProcess `
-        -Name "speaker" `
-        -WorkingDirectory (Join-Path $Root "sensorbridge-speaker-windows") `
-        -Arguments @(
-            "speaker_bridge.py",
-            "--base-url", $IpadBaseUrl,
-            "--duration-seconds", "0",
-            "webrtc-speaker"
-        )
+if (-not $UseCombinedBridge -and -not $NoSpeaker) {
+    if ($SpeakerMode -eq "webrtc") {
+        $speaker = Start-BridgeProcess `
+            -Name "speaker" `
+            -WorkingDirectory (Join-Path $Root "sensorbridge-speaker-windows") `
+            -Arguments @(
+                (Join-Path $Root "sensorbridge-speaker-windows\speaker_bridge.py"),
+                "--base-url", $IpadBaseUrl,
+                "--capture-device", $SpeakerCaptureDevice,
+                "--duration-seconds", "0",
+                "webrtc-speaker"
+            )
+    } else {
+        $speaker = Start-BridgeProcess `
+            -Name "speaker" `
+            -WorkingDirectory (Join-Path $Root "sensorbridge-speaker-windows") `
+            -Arguments @(
+                (Join-Path $Root "sensorbridge-speaker-windows\speaker_bridge.py"),
+                "--base-url", $IpadBaseUrl,
+                "--capture-device", $SpeakerCaptureDevice,
+                "--duration-seconds", "0",
+                "--gain", "$SpeakerGain",
+                "stream"
+            )
+    }
+    $speaker | Add-Member -NotePropertyName mode -NotePropertyValue $SpeakerMode
+    $Started += $speaker
 }
 
-$Started | ConvertTo-Json -Depth 4
+ConvertTo-Json -InputObject @($Started) -Depth 4

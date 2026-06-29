@@ -322,6 +322,8 @@ async def run_webrtc_microphone_receiver_async(
     playback_prebuffer_ms: float = 1500.0,
     playback_max_buffer_ms: float = 5000.0,
     capture_path: str | None = None,
+    push_to_talk_control_path: str | None = None,
+    push_to_talk_default_muted: bool = False,
 ) -> WebRTCMicrophoneResult:
     backend = _load_audio_backend()
     if not backend["ok"]:
@@ -363,6 +365,8 @@ async def run_webrtc_microphone_receiver_async(
     receiver.noise_gate_threshold = max(0.0, min(5000.0, float(noise_gate_threshold or 0.0)))
     receiver.playback_prebuffer_frames = _ms_to_frames(playback_prebuffer_ms, 48000, minimum=4800, maximum=240000)
     receiver.playback_max_buffer_frames = _ms_to_frames(playback_max_buffer_ms, 48000, minimum=receiver.playback_prebuffer_frames, maximum=480000)
+    receiver.push_to_talk_control_path = push_to_talk_control_path or ""
+    receiver.push_to_talk_default_muted = bool(push_to_talk_default_muted)
     warnings: list[str] = []
     errors: list[str] = []
     final_status: JsonDict = {}
@@ -631,6 +635,50 @@ class _AudioReceiverState:
         return round(max(0.0, (time.monotonic() - self._last_frame_at) * 1000.0), 3)
 
 
+def _push_to_talk_allows_audio(state: _AudioReceiverState) -> bool:
+    control_path = str(getattr(state, "push_to_talk_control_path", "") or "")
+    if not control_path:
+        return True
+
+    default_allowed = not bool(getattr(state, "push_to_talk_default_muted", False))
+    now = time.monotonic()
+    last_check = float(getattr(state, "_push_to_talk_last_check_at", 0.0) or 0.0)
+    if now - last_check < 0.05:
+        return bool(getattr(state, "_push_to_talk_allowed", default_allowed))
+
+    allowed = default_allowed
+    try:
+        text = Path(control_path).read_text(encoding="utf-8-sig").strip()
+        if text:
+            try:
+                payload = json.loads(text)
+                if isinstance(payload, dict):
+                    allowed = bool(payload.get("talking", payload.get("enabled", default_allowed)))
+                else:
+                    allowed = bool(payload)
+            except json.JSONDecodeError:
+                allowed = text.lower() in {"1", "true", "yes", "on", "talk", "talking", "unmuted"}
+    except FileNotFoundError:
+        allowed = default_allowed
+    except Exception:
+        allowed = default_allowed
+
+    setattr(state, "_push_to_talk_last_check_at", now)
+    setattr(state, "_push_to_talk_allowed", allowed)
+    return allowed
+
+
+def _apply_push_to_talk_gate(np: Any, samples: Any, state: _AudioReceiverState) -> Any:
+    if _push_to_talk_allows_audio(state):
+        setattr(state, "_push_to_talk_talking", True)
+        return samples
+
+    setattr(state, "_push_to_talk_talking", False)
+    muted_frames = int(getattr(state, "_push_to_talk_muted_frames", 0) or 0)
+    setattr(state, "_push_to_talk_muted_frames", muted_frames + int(samples.shape[0]))
+    return np.zeros_like(samples)
+
+
 async def _consume_audio_track(track: Any, state: _AudioReceiverState, sd: Any, np: Any, output_index: int, warnings: list[str]) -> None:
     stream = None
     resampler = None
@@ -647,6 +695,7 @@ async def _consume_audio_track(track: Any, state: _AudioReceiverState, sd: Any, 
                 samples = _apply_low_cut_filter(np, samples, state, sample_rate_hz)
                 samples = _apply_output_gain(np, samples, state)
                 samples = _apply_noise_gate(np, samples, state)
+                samples = _apply_push_to_talk_gate(np, samples, state)
                 _record_output_samples(np, state, samples)
                 _write_diagnostic_capture(np, state, "processed", samples)
                 if state.playback_buffer is None:
@@ -688,6 +737,9 @@ async def _consume_audio_track(track: Any, state: _AudioReceiverState, sd: Any, 
                     "playbackDroppedRatio": _playback_dropped_ratio(state),
                     "playbackOverflowDroppedFrames": state.playback_buffer.overflow_dropped_frames,
                     "playbackCatchupDroppedFrames": state.playback_buffer.catchup_dropped_frames,
+                    "pushToTalkEnabled": bool(getattr(state, "push_to_talk_control_path", "")),
+                    "pushToTalkTalking": bool(getattr(state, "_push_to_talk_talking", True)),
+                    "pushToTalkMutedFrames": int(getattr(state, "_push_to_talk_muted_frames", 0) or 0),
                 }
                 state.audio_buffer_ms = round((state.playback_buffer.queued_frames / float(sample_rate_hz)) * 1000.0, 3)
                 state._last_frame_at = time.monotonic()
@@ -695,7 +747,9 @@ async def _consume_audio_track(track: Any, state: _AudioReceiverState, sd: Any, 
     except Exception as exc:
         if not state.stopping:
             state.receiver_state = "error"
-            warnings.append(f"audio track consume failed: {exc}")
+            message = str(exc)
+            summary = f"{exc.__class__.__name__}: {message}" if message else f"{exc.__class__.__name__}: {exc!r}"
+            warnings.append(f"audio track consume failed: {summary}")
 
 
 class _PlaybackBuffer:

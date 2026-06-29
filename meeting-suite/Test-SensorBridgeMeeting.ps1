@@ -1,5 +1,7 @@
 param(
     [string]$IpadBaseUrl = "http://192.168.0.24:27180",
+    [string]$CableInputDevice = "CABLE Input",
+    [string]$SpeakerCaptureDevice = "CABLE Output",
     [switch]$SkipRuntime
 )
 
@@ -13,12 +15,12 @@ function Test-CommandAvailable {
 }
 
 function Resolve-PythonInvocation {
-    if (Test-CommandAvailable "python") {
-        return @{ File = "python"; Prefix = @() }
-    }
-
     if (Test-CommandAvailable "py") {
         return @{ File = "py"; Prefix = @("-3") }
+    }
+
+    if (Test-CommandAvailable "python") {
+        return @{ File = "python"; Prefix = @() }
     }
 
     return $null
@@ -67,6 +69,12 @@ $checks = [ordered]@{
         healthReachable = $false
         error = $null
     }
+    audioRoute = [ordered]@{
+        microphoneBridgePlaybackDevice = $CableInputDevice
+        meetingMicrophoneSelectInMeeting = "CABLE Output"
+        speakerBridgeCaptureDevice = $SpeakerCaptureDevice
+        speakerSelectInMeeting = "CABLE Input"
+    }
     runtime = [ordered]@{}
 }
 
@@ -82,12 +90,12 @@ if (-not $SkipRuntime -and $null -ne $PythonInvocation) {
     $checks.runtime.microphoneVbCable = Invoke-JsonCommand `
         -PythonInvocation $PythonInvocation `
         -WorkingDirectory (Join-Path $Root "sensorbridge-microphone-windows") `
-        -Arguments @(".\bridge.py", "vbcable-status")
+        -Arguments @(".\bridge.py", "--output-device", $CableInputDevice, "vbcable-status")
 
     $checks.runtime.speakerRoute = Invoke-JsonCommand `
         -PythonInvocation $PythonInvocation `
         -WorkingDirectory (Join-Path $Root "sensorbridge-speaker-windows") `
-        -Arguments @(".\speaker_bridge.py", "status")
+        -Arguments @(".\speaker_bridge.py", "--capture-device", $SpeakerCaptureDevice, "status")
 }
 
 $checks.ok = (

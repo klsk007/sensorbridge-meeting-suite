@@ -8,11 +8,14 @@ build/
 *.egg-info/
 captures/
 logs/
+snapshots/
 *.log
 *.zip
 *.wav
 *.pcm
 *.jsonl
+sensorbridge-ipad-preview.png
+wemeet-*.png
 
 # Windows build outputs
 bin/

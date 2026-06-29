@@ -47,6 +47,21 @@ function Get-LatestFrameEvidence {
   }
 }
 
+function Quote-ProcessArgument {
+  param([string]$Value)
+
+  if ($Value -match '[\s"]') {
+    return '"' + ($Value -replace '"', '\"') + '"'
+  }
+  return $Value
+}
+
+function Join-ProcessArguments {
+  param([string[]]$ArgumentList)
+
+  return (($ArgumentList | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ')
+}
+
 $buildReport = $null
 if ($Build) {
   if (-not (Test-Path $buildScript)) {
@@ -90,7 +105,13 @@ if ($Start) {
         '--height', [string]$Height,
         '--fps', [string]$Fps
       )
-      $startedProcess = Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $senderDir -WindowStyle Hidden -PassThru
+      $startup = ([wmiclass]'Win32_ProcessStartup').CreateInstance()
+      $startup.ShowWindow = 0
+      $commandLine = '"' + $exe + '" ' + (Join-ProcessArguments $args)
+      $createResult = ([wmiclass]'Win32_Process').Create($commandLine, $senderDir, $startup)
+      if ([int]$createResult.ReturnValue -ne 0) {
+        throw "Failed to start SensorBridge.DirectShowSender.exe with Win32_Process.Create return code $($createResult.ReturnValue)."
+      }
       Start-Sleep -Milliseconds 600
     }
   }

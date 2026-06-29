@@ -7,8 +7,8 @@ SensorBridge Meeting Suite is a Windows virtual-device bridge for meeting softwa
 | Meeting role | Windows-facing device | Source or sink | Current component |
 | --- | --- | --- | --- |
 | Camera | `SensorBridge Camera` | iPhone/iPad camera over WebRTC/H.264 | `sensorbridge-windows-clean` |
-| Microphone | `CABLE Output` | iPhone/iPad microphone over WebRTC/Opus, written to `CABLE Input` | `sensorbridge-microphone-windows` |
-| Speaker | `CABLE Input` as meeting output | Captured from `CABLE Output`, sent to iPhone/iPad speaker over WebRTC/Opus | `sensorbridge-speaker-windows` |
+| Microphone | `Cable Microphone` (usually shown as `CABLE Output`) | iPhone/iPad microphone over WebRTC/Opus, written to the selected playback endpoint, usually `CABLE Input` | `sensorbridge-microphone-windows` |
+| Speaker | `Cable Speaker` (usually shown as `CABLE Input`) | Captured from the selected recording endpoint, usually `CABLE Output`, and sent to iPhone/iPad speaker over WebRTC/Opus | `sensorbridge-speaker-windows` |
 
 ## Why Windows Owns the Virtual Devices
 
@@ -28,7 +28,10 @@ For full-duplex meeting use, two independent virtual cables are preferable:
 - Cable A: iPhone/iPad microphone -> meeting microphone.
 - Cable B: meeting speaker output -> iPhone/iPad speaker.
 
-Using one cable for both directions is acceptable for short diagnostics but can mix audio paths and increase echo risk.
+Using one cable for both directions is useful for development and can work with
+the WebRTC microphone plus WebRTC speaker route. For the cleanest full-duplex
+meeting setup, two independent virtual cables are still preferable: one route
+for microphone injection and another route for speaker return.
 
 ## Echo Boundary
 

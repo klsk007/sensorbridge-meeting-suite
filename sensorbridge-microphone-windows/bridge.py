@@ -170,6 +170,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tune-dir", default="")
     parser.add_argument("--playback-prebuffer-ms", type=float, default=1500.0)
     parser.add_argument("--playback-max-buffer-ms", type=float, default=5000.0)
+    parser.add_argument("--push-to-talk-control", default="")
+    parser.add_argument("--push-to-talk-default-muted", action="store_true")
     parser.add_argument("--stop-file", default="")
     parser.add_argument("--tail-seconds", type=float, default=0.0)
     parser.add_argument("--shortcut-name", default="SensorBridge Microphone.lnk")
@@ -497,6 +499,8 @@ def run_command(client: SensorBridgeClient, args: argparse.Namespace) -> dict[st
             playback_prebuffer_ms=args.playback_prebuffer_ms,
             playback_max_buffer_ms=args.playback_max_buffer_ms,
             capture_path=args.capture_path or None,
+            push_to_talk_control_path=args.push_to_talk_control or None,
+            push_to_talk_default_muted=args.push_to_talk_default_muted,
         ).to_json()
         result["latest_diagnostics"] = write_latest_webrtc_diagnostics(result)
         return result

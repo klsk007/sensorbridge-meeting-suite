@@ -1,0 +1,6 @@
+aiortc>=1.14
+av>=16.0
+numpy>=1.26
+sounddevice>=0.5.5
+setuptools>=68
+wheel
