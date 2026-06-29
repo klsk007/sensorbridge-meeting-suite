@@ -39,5 +39,7 @@ jobs:
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\meeting-suite\windows-app\SensorBridge.Meeting.App\build.ps1 -Json
       - name: Check meeting readiness script syntax
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\meeting-suite\Test-SensorBridgeMeeting.ps1 -SkipRuntime
+      - name: Install test dependency
+        run: python -m pip install pytest
       - name: Run meeting suite tests
         run: python -m pytest -q tests
