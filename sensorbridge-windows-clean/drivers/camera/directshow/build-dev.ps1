@@ -42,6 +42,23 @@ function Find-MSBuild {
       return [string]$path
     }
   }
+  $roots = @(
+    (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\2022\BuildTools\MSBuild'),
+    (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\2019\BuildTools\MSBuild'),
+    (Join-Path ${env:ProgramFiles} 'Microsoft Visual Studio\2022\BuildTools\MSBuild'),
+    (Join-Path ${env:ProgramFiles} 'Microsoft Visual Studio\2019\BuildTools\MSBuild')
+  )
+  foreach ($rootPath in $roots) {
+    if (-not (Test-Path $rootPath)) {
+      continue
+    }
+    $candidate = Get-ChildItem -Path $rootPath -Recurse -Filter MSBuild.exe -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName -notmatch '\\amd64\\' } |
+      Select-Object -First 1
+    if ($candidate) {
+      return $candidate.FullName
+    }
+  }
   return $null
 }
 
@@ -80,6 +97,23 @@ function Invoke-MSBuildChecked {
   }
 }
 
+function Add-WindowsSdkToolsToPath {
+  $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+  if (-not (Test-Path $sdkRoot)) {
+    return
+  }
+  $sdkBin = Get-ChildItem -Path $sdkRoot -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' -and (Test-Path (Join-Path $_.FullName 'x64\rc.exe')) } |
+    Sort-Object Name -Descending |
+    Select-Object -First 1
+  if ($sdkBin) {
+    $toolPath = Join-Path $sdkBin.FullName 'x64'
+    if ($env:PATH -notlike "*$toolPath*") {
+      $env:PATH = "$toolPath;$env:PATH"
+    }
+  }
+}
+
 function Sync-SoftcamVs2019Dist {
   $nestedDist = Join-Path $sourceDir 'src\softcam\dist'
   if (-not (Test-Path $nestedDist)) {
@@ -105,12 +139,13 @@ if ($Fetch) {
   & (Join-Path $root 'third_party\fetch-third-party.ps1') -Component softcam -UpdateExisting
 }
 
+Add-WindowsSdkToolsToPath
 $msbuild = Find-MSBuild
 $installedToolsets = Get-InstalledPlatformToolsets
 $sourceExists = Test-Path $sourceDir
 $solutionExists = Test-Path $solution
 $vs2019SolutionExists = Test-Path $vs2019Solution
-$useVs2019Projects = ($installedToolsets -contains 'v142') -and -not ($installedToolsets -contains 'v143')
+$useVs2019Projects = ($installedToolsets -contains 'v142') -and (($msbuild -match '\\2019\\') -or -not ($installedToolsets -contains 'v143'))
 $softcamProjectToBuild = if ($useVs2019Projects -and (Test-Path $softcamVs2019Project)) { $softcamVs2019Project } else { $softcamProject }
 $installerProjectToBuild = if ($useVs2019Projects -and (Test-Path $installerVs2019Project)) { $installerVs2019Project } else { $installerSolution }
 $senderProjectToBuild = if ($useVs2019Projects -and (Test-Path $senderVs2019Project)) { $senderVs2019Project } else { $senderSolution }

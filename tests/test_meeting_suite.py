@@ -34,6 +34,17 @@ def test_unified_launcher_starts_camera_microphone_and_speaker_components() -> N
     assert "webrtc-speaker" in text
 
 
+def test_unified_launcher_primes_camera_media_and_virtual_device() -> None:
+    launcher = ROOT / "meeting-suite" / "Start-SensorBridgeMeeting.ps1"
+    text = launcher.read_text(encoding="utf-8")
+
+    assert "/api/v1/video/start" in text
+    assert "/api/v1/audio/start" in text
+    assert "Ensure-CameraVirtualDevice" in text
+    assert "sender-dev.ps1" in text
+    assert "register-dev.ps1" in text
+
+
 def test_readme_exposes_single_app_build_and_run_path() -> None:
     text = (ROOT / "README.md").read_text(encoding="utf-8")
 

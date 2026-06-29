@@ -30,9 +30,44 @@ function Find-MSBuild {
       return [string]$path
     }
   }
+  $roots = @(
+    (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\2022\BuildTools\MSBuild'),
+    (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\2019\BuildTools\MSBuild'),
+    (Join-Path ${env:ProgramFiles} 'Microsoft Visual Studio\2022\BuildTools\MSBuild'),
+    (Join-Path ${env:ProgramFiles} 'Microsoft Visual Studio\2019\BuildTools\MSBuild')
+  )
+  foreach ($rootPath in $roots) {
+    if (-not (Test-Path $rootPath)) {
+      continue
+    }
+    $candidate = Get-ChildItem -Path $rootPath -Recurse -Filter MSBuild.exe -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName -notmatch '\\amd64\\' } |
+      Select-Object -First 1
+    if ($candidate) {
+      return $candidate.FullName
+    }
+  }
   return $null
 }
 
+function Add-WindowsSdkToolsToPath {
+  $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+  if (-not (Test-Path $sdkRoot)) {
+    return
+  }
+  $sdkBin = Get-ChildItem -Path $sdkRoot -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' -and (Test-Path (Join-Path $_.FullName 'x64\rc.exe')) } |
+    Sort-Object Name -Descending |
+    Select-Object -First 1
+  if ($sdkBin) {
+    $toolPath = Join-Path $sdkBin.FullName 'x64'
+    if ($env:PATH -notlike "*$toolPath*") {
+      $env:PATH = "$toolPath;$env:PATH"
+    }
+  }
+}
+
+Add-WindowsSdkToolsToPath
 $msbuild = Find-MSBuild
 $report = [ordered]@{
   ok = $true
