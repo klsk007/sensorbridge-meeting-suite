@@ -100,14 +100,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-MeetingSuite
 The output is written to `dist\SensorBridgeMeetingSuiteSetup-<timestamp>.exe`.
 Double-click it to extract the embedded package, copy files, create shortcuts,
 optionally install Python dependencies, and show installation progress.
-The package includes a local `wheelhouse` for the Python audio/video packages,
-so target PCs do not need internet access for pip dependency installation. The
-build machine still needs internet access when creating the installer so it can
-download those wheels. Python itself and VB-CABLE are still user-installed
-prerequisites.
-The installer also includes an `安装前检查` button that lists only prerequisites
-users must install themselves, currently Python 3.10+ and VB-CABLE, with
-recommended usable versions instead of latest-version nudges.
+The package includes a local `wheelhouse` for the Python audio/video packages
+and a bundled Python 3.12.3 runtime package. Target PCs do not need internet access
+for Python or pip dependency installation. The build machine still needs
+internet access when creating the installer so it can download those offline
+resources.
+The installer also includes an `安装前检查` button. Software that the installer
+can legally bundle, such as Python 3.12.3, is installed automatically when
+missing. Third-party software that cannot be bundled because of licensing, such
+as VB-CABLE, is listed with a copyable official download link.
 
 ## Repository Layout
 

@@ -253,9 +253,9 @@ def test_gui_installer_exposes_copyable_vbcable_help() -> None:
     assert "SENSORBRIDGE_VBCABLE_MISSING" in install_script
     assert "CopyVbCableUrl" in installer
     assert "_vbCableUrlText" in installer
-    assert "离线安装/修复 Python 音视频依赖" in installer
+    assert "自动安装/修复 Python 3.12.3" in installer
     assert "安装前检查" in installer
-    assert "推荐：Python 3.10+" in installer
+    assert "如缺失，安装器会自动安装 Python " in installer
     assert "VBCABLE_Driver_Pack45" in installer
     assert "满足后无需更新" in installer
     assert "无需重装或更新" in installer
@@ -264,6 +264,20 @@ def test_gui_installer_exposes_copyable_vbcable_help() -> None:
     assert "刷新音频设备" in installer
     assert "Refresh audio devices" in install_script
     assert "wheelhouse" in install_script
+    assert "BundledPythonVersion = '3.12.3'" in install_script
+    assert "Install-BundledPythonRuntime" in install_script
+    assert "Resolve-BundledPythonCommand" in install_script
+    assert "BundledPythonPackageName = \"python-$BundledPythonVersion.nupkg\"" in install_script
+    assert "prerequisites\\$BundledPythonPackageName" in install_script
+    assert "ZipFile]::ExtractToDirectory" in install_script
+    assert "BundledPythonVersion = \"3.12.3\"" in installer
+    assert "将自动安装" in installer
+    assert "自动安装/修复 Python 3.12.3" in installer
+    assert "因第三方驱动授权限制" in installer
+    assert "PythonRuntimeVersion = '3.12.3'" in package_script
+    assert "python-$Version.nupkg" in package_script
+    assert "Invoke-PythonRuntimeDownload" in package_script
+    assert "python-runtime-cache" in package_script
     assert "--no-index" in install_script
     assert "--find-links" in install_script
     assert "--no-build-isolation" in install_script

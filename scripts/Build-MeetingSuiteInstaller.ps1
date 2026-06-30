@@ -3,6 +3,8 @@ param(
   [string]$OutputDir = '',
   [string[]]$WheelPythonVersions = @('310', '311', '312'),
   [string]$WheelhouseCacheDir = '',
+  [string]$PythonRuntimeVersion = '3.12.3',
+  [string]$PythonRuntimeCacheDir = '',
   [string]$PipIndexUrl = '',
   [switch]$Json
 )
@@ -52,6 +54,12 @@ if ($WheelPythonVersions -and $WheelPythonVersions.Count -gt 0) {
 }
 if ($WheelhouseCacheDir) {
   $packageArgs += @('-WheelhouseCacheDir', $WheelhouseCacheDir)
+}
+if ($PythonRuntimeVersion) {
+  $packageArgs += @('-PythonRuntimeVersion', $PythonRuntimeVersion)
+}
+if ($PythonRuntimeCacheDir) {
+  $packageArgs += @('-PythonRuntimeCacheDir', $PythonRuntimeCacheDir)
 }
 if ($PipIndexUrl) {
   $packageArgs += @('-PipIndexUrl', $PipIndexUrl)

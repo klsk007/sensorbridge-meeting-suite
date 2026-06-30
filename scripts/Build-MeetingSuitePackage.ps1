@@ -3,6 +3,9 @@ param(
   [string]$OutputDir = '',
   [string[]]$WheelPythonVersions = @('310', '311', '312'),
   [string]$WheelhouseCacheDir = '',
+  [string]$PythonRuntimeVersion = '3.12.3',
+  [string]$PythonRuntimeUrl = '',
+  [string]$PythonRuntimeCacheDir = '',
   [string]$PipIndexUrl = '',
   [switch]$SkipWheelhouse,
   [switch]$NoZip,
@@ -18,6 +21,12 @@ if (-not $OutputDir) {
 }
 if (-not $WheelhouseCacheDir) {
   $WheelhouseCacheDir = Join-Path $OutputDir 'wheelhouse-cache'
+}
+if (-not $PythonRuntimeCacheDir) {
+  $PythonRuntimeCacheDir = Join-Path $OutputDir 'python-runtime-cache'
+}
+if (-not $PythonRuntimeUrl) {
+  $PythonRuntimeUrl = "https://www.nuget.org/api/v2/package/python/$PythonRuntimeVersion"
 }
 $WheelPythonVersions = @(
   $WheelPythonVersions | ForEach-Object {
@@ -264,6 +273,50 @@ function Invoke-PipDownload {
   }
 }
 
+function Invoke-PythonRuntimeDownload {
+  param(
+    [string]$Version,
+    [string]$Url,
+    [string]$CacheDir,
+    [string]$DestinationDir
+  )
+
+  if (-not $Version) {
+    throw 'Python runtime version is required.'
+  }
+  if (-not $Url) {
+    throw 'Python runtime URL is required.'
+  }
+
+  New-Item -ItemType Directory -Force -Path $CacheDir | Out-Null
+  New-Item -ItemType Directory -Force -Path $DestinationDir | Out-Null
+
+  $fileName = "python-$Version.nupkg"
+  $cachePath = Join-Path $CacheDir $fileName
+  $destination = Join-Path $DestinationDir $fileName
+
+  if (-not (Test-Path $cachePath)) {
+    Invoke-WebRequest -Uri $Url -OutFile $cachePath -UseBasicParsing
+  }
+  if (-not (Test-Path $cachePath)) {
+    throw "Python runtime installer was not downloaded: $cachePath"
+  }
+
+  Copy-Item -LiteralPath $cachePath -Destination $destination -Force
+  $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $destination
+  $item = Get-Item -LiteralPath $destination
+
+  return [ordered]@{
+    ok = $true
+    version = $Version
+    url = $Url
+    cache = $cachePath
+    installer = $destination
+    bytes = [int64]$item.Length
+    sha256 = $hash.Hash
+  }
+}
+
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
 $buildScript = Join-Path $root 'meeting-suite\windows-app\SensorBridge.Meeting.App\build.ps1'
@@ -321,6 +374,12 @@ if (-not $SkipWheelhouse) {
     -IndexUrl $PipIndexUrl
 }
 
+$pythonRuntimeReport = Invoke-PythonRuntimeDownload `
+  -Version $PythonRuntimeVersion `
+  -Url $PythonRuntimeUrl `
+  -CacheDir $PythonRuntimeCacheDir `
+  -DestinationDir (Join-Path $stage 'prerequisites')
+
 $requiredPaths = @(
   'meeting-suite\windows-app\SensorBridge.Meeting.App\bin\Release\SensorBridge.Meeting.App.exe',
   'meeting-suite\Start-SensorBridgeMeeting.ps1',
@@ -338,6 +397,7 @@ $requiredPaths = @(
 if (-not $SkipWheelhouse) {
   $requiredPaths += 'wheelhouse\runtime-requirements.txt'
 }
+$requiredPaths += "prerequisites\python-$PythonRuntimeVersion.nupkg"
 
 $missing = @()
 foreach ($relative in $requiredPaths) {
@@ -372,6 +432,7 @@ $report = [ordered]@{
   fileCount = $files.Count
   bytes = $bytes
   offlineWheelhouse = $wheelhouseReport
+  bundledPythonRuntime = $pythonRuntimeReport
   requiredFilesChecked = $requiredPaths
   build = $buildReport
   installCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-SensorBridgeMeeting.ps1"

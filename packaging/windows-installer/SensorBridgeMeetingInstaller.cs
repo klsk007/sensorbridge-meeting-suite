@@ -26,6 +26,7 @@ namespace SensorBridge.Meeting.Installer
     {
         private const string PayloadResourceName = "SensorBridgeMeetingSuitePayload.zip";
         private const string VbCableUrl = "https://vb-audio.com/Cable/";
+        private const string BundledPythonVersion = "3.12.3";
 
         private readonly TextBox _installDirText;
         private readonly Button _browseButton;
@@ -127,7 +128,7 @@ namespace SensorBridge.Meeting.Installer
             root.Controls.Add(optionsPanel, 0, 1);
 
             _installDepsCheck = new CheckBox();
-            _installDepsCheck.Text = "离线安装/修复 Python 音视频依赖（随包 wheelhouse 优先）";
+            _installDepsCheck.Text = "自动安装/修复 Python 3.12.3 和音视频依赖（随包离线资源优先）";
             _installDepsCheck.Checked = true;
             _installDepsCheck.AutoSize = true;
             _installDepsCheck.Location = new Point(0, 4);
@@ -326,8 +327,8 @@ namespace SensorBridge.Meeting.Installer
         private void InitializePreflightList()
         {
             _preflightList.Items.Clear();
-            SetPreflightItem("python", "Python", "待检查", "推荐：Python 3.10+；3.10-3.12 均可，满足后无需更新。", Color.FromArgb(86, 99, 112));
-            SetPreflightItem("vbcable", "VB-CABLE", "待检查", "推荐：官方 VBCABLE_Driver_Pack45；默认识别 CABLE Input/Output，名字不同可在主程序手动选择。", Color.FromArgb(86, 99, 112));
+            SetPreflightItem("python", "Python", "待检查", "推荐：Python 3.10+；如缺失，安装器会自动安装 Python " + BundledPythonVersion + "。", Color.FromArgb(86, 99, 112));
+            SetPreflightItem("vbcable", "VB-CABLE", "待检查", "推荐：官方 VBCABLE_Driver_Pack45；因第三方驱动授权限制只提供下载链接，名字不同可在主程序手动选择。", Color.FromArgb(86, 99, 112));
         }
 
         private void StartPreflightCheck()
@@ -378,17 +379,17 @@ namespace SensorBridge.Meeting.Installer
 
             if (!python.Found)
             {
-                SetPreflightItem("python", "Python", "缺失", "推荐 Python 3.10+；勾选安装依赖前需要先安装 Python。", Color.Firebrick);
+                SetPreflightItem("python", "Python", "将自动安装", "未检测到 Python 3.10+；一键安装时将随包安装 Python " + BundledPythonVersion + "。", Color.FromArgb(151, 75, 0));
                 return python;
             }
 
             if (CompareVersion(python.Version, "3.10") >= 0)
             {
-                SetPreflightItem("python", "Python", "通过", "当前 " + python.Version + "；推荐 Python 3.10+，已满足则无需更新。", Color.SeaGreen);
+                SetPreflightItem("python", "Python", "通过", "当前 " + python.Version + "；推荐 Python 3.10+，满足后无需更新。", Color.SeaGreen);
             }
             else
             {
-                SetPreflightItem("python", "Python", "缺失", "当前 " + python.Version + "；需要 Python 3.10+。", Color.Firebrick);
+                SetPreflightItem("python", "Python", "将自动安装", "当前 " + python.Version + "；低于 3.10，一键安装时将随包安装 Python " + BundledPythonVersion + "。", Color.FromArgb(151, 75, 0));
             }
             return python;
         }
@@ -430,7 +431,7 @@ namespace SensorBridge.Meeting.Installer
             }
             else
             {
-                SetPreflightItem("vbcable", "VB-CABLE", "缺失", "推荐官方 VBCABLE_Driver_Pack45；下载/安装/卸载：" + VbCableUrl, Color.Firebrick);
+                SetPreflightItem("vbcable", "VB-CABLE", "需用户安装", "因第三方驱动授权限制不会静默安装；下载/安装/卸载：" + VbCableUrl, Color.Firebrick);
                 ShowVbCableHelp(VbCableUrl);
             }
         }

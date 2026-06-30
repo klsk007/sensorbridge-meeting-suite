@@ -9,6 +9,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $VbCableUrl = 'https://vb-audio.com/Cable/'
+$BundledPythonVersion = '3.12.3'
+$BundledPythonPackageName = "python-$BundledPythonVersion.nupkg"
 
 function Write-InstallerProgress {
   param(
@@ -58,8 +60,9 @@ function Resolve-PythonCommand {
   if ($py) {
     try {
       $exe = & $py.Source -3 -c "import sys; print(sys.executable)" 2>$null
-      if ($LASTEXITCODE -eq 0 -and $exe -and (Test-Path $exe.Trim())) {
-        return @{ File = $py.Source; Prefix = @('-3') }
+      $version = & $py.Source -3 -c "import sys; print('%d.%d.%d' % sys.version_info[:3])" 2>$null
+      if ($LASTEXITCODE -eq 0 -and $exe -and (Test-Path $exe.Trim()) -and (Test-PythonVersionAtLeast -Version $version -Minimum '3.10.0')) {
+        return @{ File = $py.Source; Prefix = @('-3'); Version = "$version"; Source = 'py' }
       }
     } catch {
     }
@@ -67,10 +70,121 @@ function Resolve-PythonCommand {
 
   $python = Get-Command python -ErrorAction SilentlyContinue
   if ($python) {
-    return @{ File = $python.Source; Prefix = @() }
+    try {
+      $version = & $python.Source -c "import sys; print('%d.%d.%d' % sys.version_info[:3])" 2>$null
+      if ($LASTEXITCODE -eq 0 -and (Test-PythonVersionAtLeast -Version $version -Minimum '3.10.0')) {
+        return @{ File = $python.Source; Prefix = @(); Version = "$version"; Source = 'python' }
+      }
+    } catch {
+    }
   }
 
   return $null
+}
+
+function Convert-VersionParts {
+  param([string]$Version)
+  $parts = @($Version -split '\.')
+  $values = @()
+  for ($i = 0; $i -lt 3; $i++) {
+    $raw = if ($i -lt $parts.Count) { $parts[$i] } else { '0' }
+    $digits = ([regex]::Match($raw, '^\d+')).Value
+    if (-not $digits) { $digits = '0' }
+    $values += [int]$digits
+  }
+  return $values
+}
+
+function Test-PythonVersionAtLeast {
+  param(
+    [string]$Version,
+    [string]$Minimum
+  )
+  $left = Convert-VersionParts -Version $Version
+  $right = Convert-VersionParts -Version $Minimum
+  for ($i = 0; $i -lt 3; $i++) {
+    if ($left[$i] -gt $right[$i]) { return $true }
+    if ($left[$i] -lt $right[$i]) { return $false }
+  }
+  return $true
+}
+
+function Resolve-BundledPythonCommand {
+  param([string]$Root)
+  $pythonExe = Join-Path $Root "python-$BundledPythonVersion\python.exe"
+  if (-not (Test-Path $pythonExe)) {
+    return $null
+  }
+  try {
+    $version = & $pythonExe -c "import sys; print('%d.%d.%d' % sys.version_info[:3])" 2>$null
+    if ($LASTEXITCODE -eq 0 -and (Test-PythonVersionAtLeast -Version $version -Minimum '3.10.0')) {
+      return @{ File = $pythonExe; Prefix = @(); Version = "$version"; Source = 'bundled' }
+    }
+  } catch {
+  }
+  return $null
+}
+
+function Wait-BundledPythonCommand {
+  param(
+    [string]$Root,
+    [int]$TimeoutSeconds = 30
+  )
+
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  do {
+    $python = Resolve-BundledPythonCommand -Root $Root
+    if ($python) {
+      return $python
+    }
+    Start-Sleep -Milliseconds 500
+  } while ((Get-Date) -lt $deadline)
+
+  return $null
+}
+
+function Install-BundledPythonRuntime {
+  param([string]$Root)
+
+  $existing = Resolve-BundledPythonCommand -Root $Root
+  if ($existing) {
+    return @{ ok = $true; alreadyInstalled = $true; python = $existing; package = $null }
+  }
+
+  $package = Join-Path $Root "prerequisites\$BundledPythonPackageName"
+  if (-not (Test-Path $package)) {
+    return @{ ok = $false; error = "Bundled Python runtime package is missing: $package"; package = $package }
+  }
+
+  $target = Join-Path $Root "python-$BundledPythonVersion"
+  $extractRoot = Join-Path $Root ".python-runtime-extract-$PID"
+  if (Test-Path $extractRoot) {
+    Remove-Item -LiteralPath $extractRoot -Recurse -Force
+  }
+  New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
+  New-Item -ItemType Directory -Force -Path $target | Out-Null
+  try {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Compression.ZipFile]::ExtractToDirectory($package, $extractRoot)
+    $tools = Join-Path $extractRoot 'tools'
+    if (-not (Test-Path (Join-Path $tools 'python.exe'))) {
+      return @{ ok = $false; package = $package; target = $target; error = "Bundled Python runtime package is missing tools\python.exe." }
+    }
+    Copy-Item -Path (Join-Path $tools '*') -Destination $target -Recurse -Force
+  } finally {
+    if (Test-Path $extractRoot) {
+      Remove-Item -LiteralPath $extractRoot -Recurse -Force
+    }
+  }
+
+  $python = Wait-BundledPythonCommand -Root $Root -TimeoutSeconds 30
+  return @{
+    ok = [bool]$python
+    package = $package
+    target = $target
+    python = $python
+    error = if ($python) { $null } else { 'Bundled Python installed but python.exe was not found.' }
+  }
 }
 
 function New-Shortcut {
@@ -287,8 +401,17 @@ if (-not $NoShortcuts) {
 }
 
 $python = Resolve-PythonCommand
+$pythonRuntimeInstall = $null
 $pipInstall = $null
 if ($InstallPythonDeps) {
+  if (-not $python) {
+    Write-InstallerProgress -Percent 50 -Message "Installing bundled Python $BundledPythonVersion"
+    $pythonRuntimeInstall = Install-BundledPythonRuntime -Root $targetRoot
+    if (-not [bool]$pythonRuntimeInstall.ok) {
+      throw ($pythonRuntimeInstall.error)
+    }
+    $python = $pythonRuntimeInstall.python
+  }
   if (Test-WheelhousePresent -Root $targetRoot) {
     Write-InstallerProgress -Percent 58 -Message 'Installing Python bridge dependencies from local wheelhouse'
   } else {
@@ -330,6 +453,8 @@ $report = [ordered]@{
     python = [ordered]@{
       found = [bool]$python
       command = if ($python) { $python.File } else { $null }
+      version = if ($python) { $python.Version } else { $null }
+      source = if ($python) { $python.Source } else { $null }
       modules = $pythonModules
     }
     wheelhouse = [ordered]@{
@@ -340,6 +465,7 @@ $report = [ordered]@{
     cameraArtifacts = $cameraArtifacts
   }
   actions = [ordered]@{
+    pythonRuntimeInstall = $pythonRuntimeInstall
     pipInstall = $pipInstall
     cameraRegister = $cameraRegister
   }
@@ -351,7 +477,7 @@ $report = [ordered]@{
 
 if (-not $python) {
   $report.ok = $false
-  $report.nextSteps += 'Install Python 3.10+ and run this installer again with -InstallPythonDeps.'
+  $report.nextSteps += "Python 3.10+ was not detected and bundled Python $BundledPythonVersion could not be installed. Rebuild the installer with prerequisites\$BundledPythonPackageName included."
 } elseif (-not [bool]$pythonModules.ok) {
   $report.ok = $false
   $report.nextSteps += 'Run Install-SensorBridgeMeeting.ps1 -InstallPythonDeps to install Python bridge dependencies. If the package contains wheelhouse, this step runs offline.'

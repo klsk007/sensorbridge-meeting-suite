@@ -23,9 +23,10 @@ It also creates:
 
 ## Optional Setup
 
-The GUI installer includes an `安装前检查` button. It lists only prerequisites
-users must install themselves, currently Python 3.10+ and VB-CABLE Driver
-Pack45, without treating "not latest" as a failure.
+The GUI installer includes an `安装前检查` button. Software that the installer
+can legally bundle, such as Python 3.12.3, is installed automatically when
+missing. Third-party software that cannot be bundled because of licensing, such
+as VB-CABLE Driver Pack45, is listed with a copyable official download link.
 
 Install Python bridge dependencies:
 
@@ -34,10 +35,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-SensorBridgeMe
 ```
 
 The package includes a local `wheelhouse` with the Python audio/video wheels for
-Windows x64 Python 3.10, 3.11, and 3.12. When `wheelhouse` is present, the
-dependency step runs with `--no-index --find-links .\wheelhouse`, so the target
-PC does not need internet access for pip packages. If `wheelhouse` is missing
-from a development package, the script falls back to normal pip index behavior.
+Windows x64 Python 3.10, 3.11, and 3.12, plus a bundled Python 3.12.3 runtime package.
+When `wheelhouse` is present, the dependency step runs with
+`--no-index --find-links .\wheelhouse`, so the target PC does not need internet
+access for Python or pip packages. If `wheelhouse` is missing from a development
+package, the script falls back to normal pip index behavior.
 
 Register the virtual camera from an elevated PowerShell window:
 
@@ -53,11 +55,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-SensorBridgeMe
 
 ## External Dependencies
 
-The package does not silently install third-party system audio drivers.
+The package automatically installs bundled prerequisites when licensing allows
+it. It does not silently install third-party system audio drivers.
 
 Install these separately when needed:
 
-- Python 3.10+
 - VB-CABLE for virtual microphone/speaker routing: `https://vb-audio.com/Cable/`
 
 Use the VB-CABLE official page above to download, install, or uninstall the
