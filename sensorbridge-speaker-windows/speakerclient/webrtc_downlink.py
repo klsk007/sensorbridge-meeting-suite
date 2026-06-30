@@ -120,6 +120,9 @@ class CableOutputAudioTrack(MediaStreamTrack):  # type: ignore[misc,valid-type]
         output_channels: int = 1,
         frame_samples: int = 960,
         gain: float = 0.35,
+        push_to_talk_control_path: str = "",
+        push_to_talk_duck_gain: float = 1.0,
+        push_to_talk_release_tail_seconds: float = 0.0,
     ) -> None:
         super().__init__()
         self._sd = sounddevice
@@ -128,6 +131,10 @@ class CableOutputAudioTrack(MediaStreamTrack):  # type: ignore[misc,valid-type]
         self._output_channels = max(1, min(2, int(output_channels)))
         self._frame_samples = max(160, int(frame_samples))
         self._gain = float(gain)
+        self._push_to_talk_control_path = str(push_to_talk_control_path or "")
+        self._push_to_talk_duck_gain = max(0.0, min(1.0, float(push_to_talk_duck_gain)))
+        self._push_to_talk_release_tail_seconds = max(0.0, float(push_to_talk_release_tail_seconds))
+        self._push_to_talk_duck_state: JsonDict = {}
         self._pts = 0
         self._stream = self._sd.InputStream(
             samplerate=sample_rate_hz,
@@ -143,7 +150,14 @@ class CableOutputAudioTrack(MediaStreamTrack):  # type: ignore[misc,valid-type]
 
         samples, overflowed = await asyncio.to_thread(self._stream.read, self._frame_samples)
         _ = overflowed
-        output = _prepare_output_samples(self._np, samples, output_channels=self._output_channels, gain=self._gain)
+        gain = _push_to_talk_speaker_gain(
+            base_gain=self._gain,
+            control_path=self._push_to_talk_control_path,
+            duck_gain=self._push_to_talk_duck_gain,
+            release_tail_seconds=self._push_to_talk_release_tail_seconds,
+            state=self._push_to_talk_duck_state,
+        )
+        output = _prepare_output_samples(self._np, samples, output_channels=self._output_channels, gain=gain)
         frame = AudioFrame(format="s16", layout="mono" if self._output_channels == 1 else "stereo", samples=output.shape[0])
         frame.planes[0].update(output.tobytes())
         frame.sample_rate = self._sample_rate_hz
@@ -167,6 +181,9 @@ async def run_webrtc_speaker_downlink_async(
     output_channels: int = 1,
     include_video_recvonly: bool = True,
     timeout: float = 10.0,
+    push_to_talk_control_path: str = "",
+    push_to_talk_duck_gain: float = 1.0,
+    push_to_talk_release_tail_seconds: float = 0.0,
 ) -> WebRTCSpeakerResult:
     backend = _load_audio_backend()
     if not backend["ok"]:
@@ -213,6 +230,9 @@ async def run_webrtc_speaker_downlink_async(
             output_channels=output_channels,
             frame_samples=frame_samples,
             gain=gain,
+            push_to_talk_control_path=push_to_talk_control_path,
+            push_to_talk_duck_gain=push_to_talk_duck_gain,
+            push_to_talk_release_tail_seconds=push_to_talk_release_tail_seconds,
         )
         audio_transceiver = pc.addTransceiver(track, direction="sendonly")
         _prefer_codec(audio_transceiver, RTCRtpSender.getCapabilities("audio").codecs, "opus")
@@ -382,6 +402,55 @@ def _prepare_output_samples(np: Any, samples: Any, *, output_channels: int, gain
         elif scaled.shape[1] > 2:
             scaled = scaled[:, :2]
     return np.clip(np.rint(scaled), -32768, 32767).astype(np.int16)
+
+
+def _push_to_talk_speaker_gain(
+    *,
+    base_gain: float,
+    control_path: str,
+    duck_gain: float,
+    release_tail_seconds: float,
+    state: JsonDict,
+    now: float | None = None,
+) -> float:
+    base = float(base_gain)
+    path = str(control_path or "")
+    if not path:
+        return base
+
+    duck = max(0.0, min(1.0, float(duck_gain)))
+    if duck >= 0.999:
+        return base
+
+    timestamp = time.monotonic() if now is None else float(now)
+    last_check = float(state.get("lastCheckAt") or 0.0)
+    talking = bool(state.get("talking", False))
+    if last_check <= 0.0 or timestamp - last_check >= 0.05:
+        talking = _read_push_to_talk_talking(path, talking)
+        state["talking"] = talking
+        state["lastCheckAt"] = timestamp
+
+    if talking:
+        state["lastTalkingAt"] = timestamp
+        return base * duck
+
+    last_talking = float(state.get("lastTalkingAt") or 0.0)
+    tail = max(0.0, float(release_tail_seconds))
+    if tail > 0.0 and last_talking > 0.0 and timestamp - last_talking <= tail:
+        return base * duck
+    return base
+
+
+def _read_push_to_talk_talking(control_path: str, fallback: bool) -> bool:
+    try:
+        with open(control_path, "rb") as handle:
+            raw = handle.read()
+        payload = json.loads(raw.decode("utf-8-sig"))
+    except Exception:
+        return bool(fallback)
+    if not isinstance(payload, dict) or "talking" not in payload:
+        return bool(fallback)
+    return bool(payload.get("talking"))
 
 
 def _int_value(value: Any) -> int:

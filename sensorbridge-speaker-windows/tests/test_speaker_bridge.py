@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from speaker_bridge import normalize_command
 from speakerclient.bridge import SpeakerBridgeResult, SpeakerClient
-from speakerclient.webrtc_downlink import WebRTCSpeakerResult
+from speakerclient.webrtc_downlink import WebRTCSpeakerResult, _push_to_talk_speaker_gain
 
 
 def test_command_aliases() -> None:
@@ -43,3 +43,37 @@ def test_webrtc_result_separates_windows_and_ipad_evidence() -> None:
     assert payload["ipad_inbound"]["speakerDownlinkTrackReady"] is True
     assert payload["ipad_inbound"]["speakerDownlinkPacketsReceived"] == 21
     assert payload["ipad_inbound"]["speakerDownlinkState"] == "receiving_webrtc_opus"
+
+
+def test_push_to_talk_ducks_speaker_during_talk_and_release_tail(tmp_path) -> None:
+    control = tmp_path / "push_to_talk.json"
+    state = {}
+    control.write_bytes(b'\xef\xbb\xbf{"talking": true}')
+
+    assert _push_to_talk_speaker_gain(
+        base_gain=0.4,
+        control_path=str(control),
+        duck_gain=0.0,
+        release_tail_seconds=1.2,
+        state=state,
+        now=1.0,
+    ) == 0.0
+
+    control.write_text('{"talking": false}', encoding="utf-8")
+    assert _push_to_talk_speaker_gain(
+        base_gain=0.4,
+        control_path=str(control),
+        duck_gain=0.0,
+        release_tail_seconds=1.2,
+        state=state,
+        now=1.1,
+    ) == 0.0
+
+    assert _push_to_talk_speaker_gain(
+        base_gain=0.4,
+        control_path=str(control),
+        duck_gain=0.0,
+        release_tail_seconds=1.2,
+        state=state,
+        now=2.4,
+    ) == 0.4

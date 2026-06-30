@@ -55,6 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--speaker-gain", type=float, default=0.35)
     parser.add_argument("--speaker-output-channels", type=int, default=1)
     parser.add_argument("--speaker-frame-samples", type=int, default=960)
+    parser.add_argument("--speaker-push-to-talk-duck-gain", type=float, default=0.0)
+    parser.add_argument("--speaker-push-to-talk-tail-ms", type=float, default=1200.0)
     parser.add_argument("--enable-video", action="store_true")
     parser.add_argument("--no-microphone", action="store_true")
     parser.add_argument("--no-speaker", action="store_true")
@@ -177,6 +179,9 @@ async def run_duplex(args: argparse.Namespace) -> dict[str, Any]:
                 output_channels=max(1, min(2, int(args.speaker_output_channels or 1))),
                 frame_samples=max(160, int(args.speaker_frame_samples or 960)),
                 gain=max(0.0, min(2.0, float(args.speaker_gain or 0.35))),
+                push_to_talk_control_path=args.push_to_talk_control or "",
+                push_to_talk_duck_gain=max(0.0, min(1.0, float(args.speaker_push_to_talk_duck_gain))),
+                push_to_talk_release_tail_seconds=max(0.0, float(args.speaker_push_to_talk_tail_ms or 0.0) / 1000.0),
             )
             speaker_transceiver = pc.addTransceiver(speaker_track, direction="sendonly")
             _prefer_codec(speaker_transceiver, RTCRtpSender.getCapabilities("audio").codecs, "opus")

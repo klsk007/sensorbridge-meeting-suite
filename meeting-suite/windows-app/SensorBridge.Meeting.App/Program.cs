@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -92,6 +93,511 @@ namespace SensorBridge.Meeting.App
         }
     }
 
+    internal sealed class FloatingTalkForm : Form
+    {
+        public event Action<bool> TalkRequested;
+        public event EventHandler CloseRequested;
+
+        private readonly WaveformPanel _waveform;
+        private readonly RoundTalkButton _talkButton;
+        private readonly ContextMenuStrip _contextMenu;
+        private readonly ToolStripMenuItem _closeItem;
+        private bool _dragging;
+        private Point _dragStart;
+
+        public FloatingTalkForm()
+        {
+            Text = "SensorBridge Talk";
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            TopMost = true;
+            Size = new Size(172, 238);
+            MinimumSize = Size;
+            MaximumSize = Size;
+            BackColor = Color.FromArgb(25, 35, 42);
+            Padding = new Padding(14);
+            Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+
+            _contextMenu = new ContextMenuStrip();
+            _closeItem = new ToolStripMenuItem("Close floating talk", null, delegate { RequestClose(); });
+            _contextMenu.Items.Add(_closeItem);
+            ContextMenuStrip = _contextMenu;
+
+            _waveform = new WaveformPanel();
+            _waveform.Location = new Point(16, 18);
+            _waveform.Size = new Size(140, 62);
+            _waveform.ContextMenuStrip = _contextMenu;
+            Controls.Add(_waveform);
+
+            _talkButton = new RoundTalkButton();
+            _talkButton.Location = new Point(36, 104);
+            _talkButton.Size = new Size(100, 100);
+            _talkButton.Text = "TALK";
+            _talkButton.ContextMenuStrip = _contextMenu;
+            _talkButton.MouseDown += delegate(object sender, MouseEventArgs e)
+            {
+                if (e.Button == MouseButtons.Left && _talkButton.Enabled) { RequestTalk(true); }
+            };
+            _talkButton.MouseUp += delegate(object sender, MouseEventArgs e)
+            {
+                if (e.Button == MouseButtons.Left) { RequestTalk(false); }
+            };
+            _talkButton.MouseLeave += delegate
+            {
+                if (_talkButton.Talking) { RequestTalk(false); }
+            };
+            Controls.Add(_talkButton);
+
+            MouseDown += BeginDrag;
+            MouseMove += DragWindow;
+            MouseUp += EndDrag;
+            _waveform.MouseDown += BeginDrag;
+            _waveform.MouseMove += DragWindow;
+            _waveform.MouseUp += EndDrag;
+        }
+
+        public void SetTalkEnabled(bool enabled)
+        {
+            _talkButton.Enabled = enabled;
+            _waveform.Enabled = enabled;
+            if (!enabled) { SetTalking(false); }
+        }
+
+        public void SetTalking(bool talking)
+        {
+            _talkButton.Talking = talking;
+            _waveform.Talking = talking;
+        }
+
+        public void SetCloseMenuText(string text)
+        {
+            _closeItem.Text = text;
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            SetTalkEnabled(false);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (GraphicsPath path = RoundedRectangle(new Rectangle(0, 0, Width - 1, Height - 1), 28))
+            using (Pen border = new Pen(Color.FromArgb(71, 95, 104), 1))
+            {
+                Region = new Region(path);
+                e.Graphics.DrawPath(border, path);
+            }
+        }
+
+        private void RequestTalk(bool talking)
+        {
+            SetTalking(talking);
+            Action<bool> handler = TalkRequested;
+            if (handler != null) { handler(talking); }
+        }
+
+        private void RequestClose()
+        {
+            EventHandler handler = CloseRequested;
+            if (handler != null) { handler(this, EventArgs.Empty); }
+        }
+
+        private void BeginDrag(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left) { return; }
+            _dragging = true;
+            _dragStart = e.Location;
+        }
+
+        private void DragWindow(object sender, MouseEventArgs e)
+        {
+            if (!_dragging) { return; }
+            Point screenPoint = ((Control)sender).PointToScreen(e.Location);
+            Location = new Point(screenPoint.X - _dragStart.X, screenPoint.Y - _dragStart.Y);
+        }
+
+        private void EndDrag(object sender, MouseEventArgs e)
+        {
+            _dragging = false;
+        }
+
+        private static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)
+        {
+            int diameter = radius * 2;
+            GraphicsPath path = new GraphicsPath();
+            path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && _contextMenu != null) { _contextMenu.Dispose(); }
+            base.Dispose(disposing);
+        }
+    }
+
+    internal sealed class ToggleSwitch : CheckBox
+    {
+        private bool _pressed;
+
+        public ToggleSwitch()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+            AutoSize = false;
+            Size = new Size(96, 32);
+            Cursor = Cursors.Hand;
+            Font = new Font("Segoe UI", 8F, FontStyle.Regular, GraphicsUnit.Point);
+            ForeColor = Color.FromArgb(31, 45, 54);
+            BackColor = Color.Transparent;
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            _pressed = true;
+            Invalidate();
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            _pressed = false;
+            Invalidate();
+            base.OnMouseUp(e);
+        }
+
+        protected override void OnCheckedChanged(EventArgs e)
+        {
+            Invalidate();
+            base.OnCheckedChanged(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.Clear(Parent == null ? SystemColors.Control : Parent.BackColor);
+
+            string caption = Text ?? "";
+            int switchWidth = 52;
+            int switchHeight = 30;
+            int captionWidth = String.IsNullOrWhiteSpace(caption) ? 0 : Math.Max(34, Width - switchWidth - 8);
+            Rectangle captionRect = new Rectangle(0, 0, captionWidth, Height);
+            Rectangle outer = new Rectangle(captionWidth, Math.Max(0, (Height - switchHeight) / 2), switchWidth, switchHeight);
+            if (captionWidth == 0)
+            {
+                outer.X = Math.Max(0, (Width - switchWidth) / 2);
+            }
+
+            if (captionWidth > 0)
+            {
+                using (SolidBrush captionBrush = new SolidBrush(Enabled ? ForeColor : Color.FromArgb(150, 158, 164)))
+                using (StringFormat captionFormat = new StringFormat())
+                {
+                    captionFormat.Alignment = StringAlignment.Near;
+                    captionFormat.LineAlignment = StringAlignment.Center;
+                    e.Graphics.DrawString(caption, Font, captionBrush, captionRect, captionFormat);
+                }
+            }
+
+            Color trackColor = Checked ? Color.FromArgb(52, 199, 89) : Color.FromArgb(209, 213, 219);
+            if (!Enabled) { trackColor = Checked ? Color.FromArgb(142, 220, 163) : Color.FromArgb(225, 228, 232); }
+
+            using (GraphicsPath trackPath = RoundedRectangle(outer, outer.Height / 2))
+            using (SolidBrush trackBrush = new SolidBrush(trackColor))
+            {
+                e.Graphics.FillPath(trackBrush, trackPath);
+            }
+
+            int knobSize = switchHeight - 4;
+            int knobX = Checked ? outer.Right - knobSize - 2 : outer.Left + 2;
+            if (_pressed)
+            {
+                knobX += Checked ? -1 : 1;
+            }
+            Rectangle knob = new Rectangle(knobX, outer.Y + 2, knobSize, knobSize);
+            using (GraphicsPath shadowPath = RoundedRectangle(new Rectangle(knob.X, knob.Y + 1, knob.Width, knob.Height), knob.Height / 2))
+            using (SolidBrush shadow = new SolidBrush(Color.FromArgb(40, 0, 0, 0)))
+            {
+                e.Graphics.FillPath(shadow, shadowPath);
+            }
+            using (GraphicsPath knobPath = RoundedRectangle(knob, knob.Height / 2))
+            using (SolidBrush knobBrush = new SolidBrush(Color.White))
+            {
+                e.Graphics.FillPath(knobBrush, knobPath);
+            }
+        }
+
+        private static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)
+        {
+            int diameter = radius * 2;
+            GraphicsPath path = new GraphicsPath();
+            path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        private static GraphicsPath LeftRoundedRectangle(Rectangle bounds, int radius)
+        {
+            int diameter = radius * 2;
+            GraphicsPath path = new GraphicsPath();
+            path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+            path.AddLine(bounds.Left + radius, bounds.Top, bounds.Right, bounds.Top);
+            path.AddLine(bounds.Right, bounds.Top, bounds.Right, bounds.Bottom);
+            path.AddLine(bounds.Right, bounds.Bottom, bounds.Left + radius, bounds.Bottom);
+            path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        private static GraphicsPath RightRoundedRectangle(Rectangle bounds, int radius)
+        {
+            int diameter = radius * 2;
+            GraphicsPath path = new GraphicsPath();
+            path.AddLine(bounds.Left, bounds.Top, bounds.Right - radius, bounds.Top);
+            path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddLine(bounds.Right - radius, bounds.Bottom, bounds.Left, bounds.Bottom);
+            path.AddLine(bounds.Left, bounds.Bottom, bounds.Left, bounds.Top);
+            path.CloseFigure();
+            return path;
+        }
+    }
+
+    internal sealed class PillButton : Button
+    {
+        private bool _pressed;
+
+        public PillButton()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+            FlatStyle = FlatStyle.Flat;
+            FlatAppearance.BorderSize = 0;
+            UseVisualStyleBackColor = false;
+            Cursor = Cursors.Hand;
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
+            BackColor = Color.FromArgb(242, 242, 247);
+            ForeColor = Color.FromArgb(0, 122, 255);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs mevent)
+        {
+            _pressed = true;
+            Invalidate();
+            base.OnMouseDown(mevent);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs mevent)
+        {
+            _pressed = false;
+            Invalidate();
+            base.OnMouseUp(mevent);
+        }
+
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            Invalidate();
+            base.OnEnabledChanged(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.Clear(Parent == null ? SystemColors.Control : Parent.BackColor);
+            Rectangle bounds = new Rectangle(0, 0, Width - 1, Height - 1);
+            Color fill = Enabled ? BackColor : Color.FromArgb(242, 242, 247);
+            if (_pressed && Enabled) { fill = Darken(fill, 12); }
+            using (GraphicsPath path = RoundedRectangle(bounds, Math.Min(14, Height / 2)))
+            using (SolidBrush brush = new SolidBrush(fill))
+            using (Pen border = new Pen(Enabled ? Color.FromArgb(224, 226, 230) : Color.FromArgb(232, 234, 238), 1))
+            using (SolidBrush textBrush = new SolidBrush(Enabled ? ForeColor : Color.FromArgb(174, 174, 178)))
+            using (StringFormat format = new StringFormat())
+            {
+                format.Alignment = StringAlignment.Center;
+                format.LineAlignment = StringAlignment.Center;
+                e.Graphics.FillPath(brush, path);
+                e.Graphics.DrawPath(border, path);
+                e.Graphics.DrawString(Text, Font, textBrush, bounds, format);
+            }
+        }
+
+        private static Color Darken(Color color, int amount)
+        {
+            return Color.FromArgb(
+                color.A,
+                Math.Max(0, color.R - amount),
+                Math.Max(0, color.G - amount),
+                Math.Max(0, color.B - amount));
+        }
+
+        private static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)
+        {
+            int diameter = radius * 2;
+            GraphicsPath path = new GraphicsPath();
+            path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+    }
+
+    internal sealed class WaveformPanel : Control
+    {
+        private readonly System.Windows.Forms.Timer _timer;
+        private readonly Random _random = new Random();
+        private bool _talking;
+        private int _phase;
+
+        public bool Talking
+        {
+            get { return _talking; }
+            set
+            {
+                _talking = value;
+                Invalidate();
+            }
+        }
+
+        public WaveformPanel()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
+            BackColor = Color.FromArgb(13, 20, 24);
+            _timer = new System.Windows.Forms.Timer();
+            _timer.Interval = 70;
+            _timer.Tick += delegate
+            {
+                _phase++;
+                Invalidate();
+            };
+            _timer.Start();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && _timer != null) { _timer.Dispose(); }
+            base.Dispose(disposing);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            Rectangle box = new Rectangle(0, 0, Width - 1, Height - 1);
+            using (GraphicsPath path = RoundedRectangle(box, 10))
+            using (SolidBrush background = new SolidBrush(BackColor))
+            using (Pen border = new Pen(Talking ? Color.FromArgb(78, 216, 143) : Color.FromArgb(67, 82, 89), 1))
+            {
+                e.Graphics.FillPath(background, path);
+                e.Graphics.DrawPath(border, path);
+            }
+
+            int mid = Height / 2;
+            using (Pen center = new Pen(Color.FromArgb(42, 57, 63), 1))
+            {
+                e.Graphics.DrawLine(center, 10, mid, Width - 10, mid);
+            }
+
+            int bars = 18;
+            float spacing = (Width - 24) / (float)(bars - 1);
+            for (int i = 0; i < bars; i++)
+            {
+                double wave = Math.Sin((i + _phase) * 0.68);
+                double jitter = Talking ? (_random.NextDouble() * 0.36) : 0.0;
+                int amplitude = Talking
+                    ? (int)(10 + Math.Abs(wave) * 18 + jitter * 14)
+                    : (int)(3 + Math.Abs(wave) * 4);
+                int x = 12 + (int)(i * spacing);
+                Color color = Talking ? Color.FromArgb(96, 234, 153) : Color.FromArgb(85, 103, 111);
+                using (Pen pen = new Pen(color, 3))
+                {
+                    e.Graphics.DrawLine(pen, x, mid - amplitude, x, mid + amplitude);
+                }
+            }
+        }
+
+        private static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)
+        {
+            int diameter = radius * 2;
+            GraphicsPath path = new GraphicsPath();
+            path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+    }
+
+    internal sealed class RoundTalkButton : Button
+    {
+        private bool _talking;
+
+        public bool Talking
+        {
+            get { return _talking; }
+            set
+            {
+                _talking = value;
+                Invalidate();
+            }
+        }
+
+        public RoundTalkButton()
+        {
+            FlatStyle = FlatStyle.Flat;
+            FlatAppearance.BorderSize = 0;
+            UseVisualStyleBackColor = false;
+            Cursor = Cursors.Hand;
+            Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold, GraphicsUnit.Point);
+            ForeColor = Color.White;
+            BackColor = Color.Transparent;
+        }
+
+        protected override void OnPaint(PaintEventArgs pevent)
+        {
+            pevent.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            pevent.Graphics.Clear(Parent == null ? Color.Transparent : Parent.BackColor);
+            Rectangle bounds = new Rectangle(2, 2, Width - 4, Height - 4);
+            Color top = Enabled
+                ? (Talking ? Color.FromArgb(46, 176, 111) : Color.FromArgb(76, 95, 106))
+                : Color.FromArgb(64, 72, 78);
+            Color bottom = Enabled
+                ? (Talking ? Color.FromArgb(20, 108, 73) : Color.FromArgb(39, 52, 61))
+                : Color.FromArgb(47, 53, 58);
+            using (LinearGradientBrush brush = new LinearGradientBrush(bounds, top, bottom, 90F))
+            using (Pen rim = new Pen(Talking ? Color.FromArgb(118, 244, 171) : Color.FromArgb(122, 146, 155), 3))
+            using (SolidBrush textBrush = new SolidBrush(Enabled ? Color.White : Color.FromArgb(145, 153, 158)))
+            using (StringFormat format = new StringFormat())
+            {
+                format.Alignment = StringAlignment.Center;
+                format.LineAlignment = StringAlignment.Center;
+                pevent.Graphics.FillEllipse(brush, bounds);
+                pevent.Graphics.DrawEllipse(rim, bounds);
+                pevent.Graphics.DrawString(Text, Font, textBrush, bounds, format);
+            }
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            using (GraphicsPath path = new GraphicsPath())
+            {
+                path.AddEllipse(new Rectangle(0, 0, Width, Height));
+                Region = new Region(path);
+            }
+        }
+    }
+
     internal sealed class MainForm : Form
     {
         private readonly AppOptions _options;
@@ -111,10 +617,8 @@ namespace SensorBridge.Meeting.App
         private CheckBox _speakerCheck;
         private Button _startButton;
         private Button _stopButton;
-        private Button _checkButton;
-        private Button _docsButton;
         private Button _refreshAudioButton;
-        private Button _talkButton;
+        private ToggleSwitch _floatingWindowButton;
         private Label _suiteTitleLabel;
         private Label _cameraTitleLabel;
         private Label _microphoneTitleLabel;
@@ -133,6 +637,7 @@ namespace SensorBridge.Meeting.App
         private ToolStripMenuItem _trayCheckItem;
         private ToolStripMenuItem _trayExitItem;
         private ToolTip _toolTip;
+        private FloatingTalkForm _floatingTalkForm;
         private readonly string _pushToTalkControlPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
             "SensorBridge",
@@ -141,6 +646,7 @@ namespace SensorBridge.Meeting.App
         private bool _allowExit;
         private bool _stopInProgress;
         private bool _talkButtonPressed;
+        private bool _updatingFloatingWindowButton;
         private string _suiteStateKey = "not_started";
         private string _cameraStatusKey = "";
         private string _microphoneStatusKey = "";
@@ -168,14 +674,15 @@ namespace SensorBridge.Meeting.App
             _language = options.Language;
             _json.MaxJsonLength = Int32.MaxValue;
             Text = "SensorBridge Meeting Suite";
-            MinimumSize = new Size(1120, 680);
-            Size = new Size(1180, 760);
+            MinimumSize = new Size(1120, 420);
+            Size = new Size(1180, 430);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(245, 247, 250);
             Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             BuildLayout();
             BuildTrayIcon();
+            BuildFloatingTalkWindow();
             ApplyLanguage();
             RenderIdle();
         }
@@ -189,8 +696,8 @@ namespace SensorBridge.Meeting.App
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 160));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 128));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
             Controls.Add(root);
 
             Panel header = new Panel();
@@ -230,7 +737,7 @@ namespace SensorBridge.Meeting.App
             FlowLayoutPanel deviceRow = new FlowLayoutPanel();
             deviceRow.Dock = DockStyle.Fill;
             deviceRow.WrapContents = false;
-            deviceRow.AutoScroll = true;
+            deviceRow.AutoScroll = false;
             deviceRow.FlowDirection = FlowDirection.LeftToRight;
             toolbarGrid.Controls.Add(deviceRow, 0, 0);
 
@@ -268,41 +775,19 @@ namespace SensorBridge.Meeting.App
             FlowLayoutPanel actionRow = new FlowLayoutPanel();
             actionRow.Dock = DockStyle.Fill;
             actionRow.WrapContents = false;
-            actionRow.AutoScroll = true;
+            actionRow.AutoScroll = false;
             actionRow.FlowDirection = FlowDirection.LeftToRight;
             toolbarGrid.Controls.Add(actionRow, 0, 2);
 
             _startButton = AddButton(actionRow, delegate { StartSuite(); });
             _stopButton = AddButton(actionRow, delegate { StopSuite(); });
-            _checkButton = AddButton(actionRow, delegate { RunReadinessCheck(); });
-            _docsButton = AddButton(actionRow, delegate { OpenSetupDoc(); });
-            _talkButton = AddButton(actionRow, delegate { });
-            _talkButton.Width = 130;
-            _talkButton.UseVisualStyleBackColor = false;
-            _talkButton.MouseDown += delegate(object sender, MouseEventArgs e)
+            _floatingWindowButton = AddToggle(actionRow, true);
+            _floatingWindowButton.Width = 96;
+            _floatingWindowButton.CheckedChanged += delegate
             {
-                if (e.Button == MouseButtons.Left) { SetPushToTalk(true); }
-            };
-            _talkButton.MouseUp += delegate { SetPushToTalk(false); };
-            _talkButton.MouseLeave += delegate
-            {
-                if (_talkButtonPressed) { SetPushToTalk(false); }
-            };
-            _talkButton.KeyDown += delegate(object sender, KeyEventArgs e)
-            {
-                if (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter)
-                {
-                    SetPushToTalk(true);
-                    e.Handled = true;
-                }
-            };
-            _talkButton.KeyUp += delegate(object sender, KeyEventArgs e)
-            {
-                if (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter)
-                {
-                    SetPushToTalk(false);
-                    e.Handled = true;
-                }
+                if (_updatingFloatingWindowButton) { return; }
+                if (_floatingWindowButton.Checked) { BuildFloatingTalkWindow(); }
+                else { CloseFloatingTalkWindow(); }
             };
 
             TableLayoutPanel cards = new TableLayoutPanel();
@@ -328,6 +813,7 @@ namespace SensorBridge.Meeting.App
             _meetingDevices.Dock = DockStyle.Fill;
             _meetingDevices.TextAlign = ContentAlignment.MiddleLeft;
             _meetingDevices.Font = new Font("Segoe UI Semibold", 9.5F, FontStyle.Bold, GraphicsUnit.Point);
+            _meetingDevices.Visible = false;
             meetingPanel.Controls.Add(_meetingDevices);
 
             _details = new TextBox();
@@ -337,9 +823,65 @@ namespace SensorBridge.Meeting.App
             _details.ScrollBars = ScrollBars.Both;
             _details.BackColor = Color.White;
             _details.Font = new Font("Consolas", 9F, FontStyle.Regular, GraphicsUnit.Point);
+            _details.Visible = false;
             root.Controls.Add(_details, 0, 4);
 
             _toolTip = new ToolTip();
+        }
+
+        private void BuildFloatingTalkWindow()
+        {
+            if (_floatingTalkForm != null && !_floatingTalkForm.IsDisposed)
+            {
+                _floatingTalkForm.Show();
+                _floatingTalkForm.Activate();
+                UpdateTalkButtonEnabled();
+                UpdateFloatingWindowButtonVisual();
+                return;
+            }
+            _floatingTalkForm = new FloatingTalkForm();
+            _floatingTalkForm.TalkRequested += delegate(bool talking) { SetPushToTalk(talking); };
+            _floatingTalkForm.CloseRequested += delegate { CloseFloatingTalkWindow(); };
+            _floatingTalkForm.FormClosed += delegate(object sender, FormClosedEventArgs e)
+            {
+                if (Object.ReferenceEquals(_floatingTalkForm, sender)) { _floatingTalkForm = null; }
+                SetPushToTalk(false);
+                UpdateFloatingWindowButtonVisual();
+            };
+            _floatingTalkForm.SetCloseMenuText(T("float_close"));
+            _floatingTalkForm.StartPosition = FormStartPosition.Manual;
+            Rectangle workArea = Screen.PrimaryScreen.WorkingArea;
+            _floatingTalkForm.Location = new Point(
+                Math.Max(workArea.Left, workArea.Right - _floatingTalkForm.Width - 28),
+                Math.Max(workArea.Top, workArea.Bottom - _floatingTalkForm.Height - 42));
+            _floatingTalkForm.Show();
+            UpdateTalkButtonEnabled();
+            UpdateFloatingWindowButtonVisual();
+        }
+
+        private void ToggleFloatingTalkWindow()
+        {
+            if (_floatingTalkForm != null && !_floatingTalkForm.IsDisposed && _floatingTalkForm.Visible)
+            {
+                CloseFloatingTalkWindow();
+                return;
+            }
+            BuildFloatingTalkWindow();
+        }
+
+        private void CloseFloatingTalkWindow()
+        {
+            SetPushToTalk(false);
+            FloatingTalkForm form = _floatingTalkForm;
+            if (form == null)
+            {
+                UpdateFloatingWindowButtonVisual();
+                return;
+            }
+            _floatingTalkForm = null;
+            form.Close();
+            form.Dispose();
+            UpdateFloatingWindowButtonVisual();
         }
 
         private static Label AddInlineLabel(Control parent)
@@ -361,6 +903,15 @@ namespace SensorBridge.Meeting.App
             return check;
         }
 
+        private static ToggleSwitch AddToggle(Control parent, bool isChecked)
+        {
+            ToggleSwitch toggle = new ToggleSwitch();
+            toggle.Checked = isChecked;
+            toggle.Margin = new Padding(0, 5, 12, 0);
+            parent.Controls.Add(toggle);
+            return toggle;
+        }
+
         private static ComboBox AddDeviceCombo(Control parent, string text)
         {
             ComboBox combo = new ComboBox();
@@ -375,10 +926,10 @@ namespace SensorBridge.Meeting.App
 
         private static Button AddButton(Control parent, EventHandler click)
         {
-            Button button = new Button();
-            button.Width = 190;
-            button.Height = 34;
-            button.Margin = new Padding(0, 6, 10, 0);
+            Button button = new PillButton();
+            button.Width = 104;
+            button.Height = 28;
+            button.Margin = new Padding(0, 6, 8, 0);
             button.Click += click;
             parent.Controls.Add(button);
             return button;
@@ -450,12 +1001,11 @@ namespace SensorBridge.Meeting.App
             if (_cameraCheck != null) { _cameraCheck.Text = T("camera_check"); }
             if (_microphoneCheck != null) { _microphoneCheck.Text = T("microphone_check"); }
             if (_speakerCheck != null) { _speakerCheck.Text = T("speaker_check"); }
-            if (_startButton != null) { _startButton.Text = T("btn_start"); _startButton.Width = _language == "zh" ? 220 : 220; }
-            if (_stopButton != null) { _stopButton.Text = T("btn_stop"); _stopButton.Width = _language == "zh" ? 160 : 190; }
-            if (_checkButton != null) { _checkButton.Text = T("btn_check"); _checkButton.Width = _language == "zh" ? 150 : 190; }
-            if (_docsButton != null) { _docsButton.Text = T("btn_setup"); _docsButton.Width = _language == "zh" ? 220 : 230; }
+            if (_startButton != null) { _startButton.Text = T("btn_start"); _startButton.Width = _language == "zh" ? 86 : 86; _startButton.BackColor = Color.FromArgb(0, 122, 255); _startButton.ForeColor = Color.White; }
+            if (_stopButton != null) { _stopButton.Text = T("btn_stop"); _stopButton.Width = _language == "zh" ? 86 : 86; _stopButton.BackColor = Color.FromArgb(242, 242, 247); _stopButton.ForeColor = Color.FromArgb(255, 59, 48); }
             if (_refreshAudioButton != null) { _refreshAudioButton.Text = T("btn_refresh_audio"); _refreshAudioButton.Width = _language == "zh" ? 160 : 185; }
-            UpdateTalkButtonVisual();
+            UpdateFloatingWindowButtonVisual();
+            if (_floatingTalkForm != null) { _floatingTalkForm.SetCloseMenuText(T("float_close")); }
             if (_suiteTitleLabel != null) { _suiteTitleLabel.Text = T("card_suite"); }
             if (_cameraTitleLabel != null) { _cameraTitleLabel.Text = T("card_camera"); }
             if (_microphoneTitleLabel != null) { _microphoneTitleLabel.Text = T("card_microphone"); }
@@ -471,12 +1021,10 @@ namespace SensorBridge.Meeting.App
             {
                 _toolTip.SetToolTip(_startButton, T("tip_start"));
                 _toolTip.SetToolTip(_stopButton, T("tip_stop"));
-                _toolTip.SetToolTip(_checkButton, T("tip_check"));
-                _toolTip.SetToolTip(_docsButton, T("tip_setup"));
                 _toolTip.SetToolTip(_microphoneOutputCombo, T("tip_microphone_output"));
                 _toolTip.SetToolTip(_speakerCaptureCombo, T("tip_speaker_capture"));
                 _toolTip.SetToolTip(_refreshAudioButton, T("tip_refresh_audio"));
-                _toolTip.SetToolTip(_talkButton, T("tip_talk"));
+                _toolTip.SetToolTip(_floatingWindowButton, T("tip_float"));
             }
             RefreshStatusLabels();
         }
@@ -560,14 +1108,18 @@ namespace SensorBridge.Meeting.App
                 case "camera_check": return "Camera";
                 case "microphone_check": return "Microphone";
                 case "speaker_check": return "Speaker";
-                case "btn_start": return "Start/restart selected";
-                case "btn_stop": return "Stop and clean processes";
-                case "btn_check": return "Check device readiness";
-                case "btn_setup": return "Open Tencent setup guide";
+                case "btn_start": return "Start";
+                case "btn_stop": return "Stop";
+                case "btn_check": return "Check";
+                case "btn_setup": return "Setup";
                 case "btn_refresh_audio": return "Refresh audio devices";
                 case "btn_audio_refreshing": return "Refreshing...";
                 case "btn_talk": return "Hold to talk";
                 case "btn_talking": return "Talking...";
+                case "btn_float_open": return "Float OFF";
+                case "btn_float_close": return "Float ON";
+                case "float_close": return "Close floating talk";
+                case "float_label": return "Float";
                 case "tip_start": return "Clean the previous bridge run first, then start the currently selected camera, microphone, and speaker.";
                 case "tip_stop": return "Stop bridge processes started by this project and clean the virtual camera sender.";
                 case "tip_check": return "Check iPhone/iPad reachability and the currently selected Windows virtual camera/audio devices.";
@@ -577,6 +1129,7 @@ namespace SensorBridge.Meeting.App
                 case "tip_speaker_capture": return "Choose the speaker device shown in the meeting app. Usually CABLE Input. The bridge captures the matching CABLE Output internally.";
                 case "tip_refresh_audio": return "Reads the current Windows audio devices through Python sounddevice. If the default name is different, choose the matching device manually.";
                 case "tip_talk": return "After startup, hold this button to open the virtual microphone. Release it to mute.";
+                case "tip_float": return "Show or hide the small floating push-to-talk button.";
                 case "card_suite": return "Suite";
                 case "card_camera": return "Camera";
                 case "card_microphone": return "Microphone";
@@ -674,13 +1227,14 @@ namespace SensorBridge.Meeting.App
 
         private void SetPushToTalk(bool talking)
         {
-            if (talking && (_talkButton == null || !_talkButton.Enabled || _microphoneCheck == null || !_microphoneCheck.Checked))
+            if (talking && !CanPushToTalk())
             {
+                if (_floatingTalkForm != null) { _floatingTalkForm.SetTalking(false); }
                 return;
             }
             _talkButtonPressed = talking;
             WritePushToTalkControl(talking);
-            UpdateTalkButtonVisual();
+            if (_floatingTalkForm != null) { _floatingTalkForm.SetTalking(talking); }
         }
 
         private void WritePushToTalkControl(bool talking)
@@ -692,26 +1246,37 @@ namespace SensorBridge.Meeting.App
             File.WriteAllText(_pushToTalkControlPath, payload, new UTF8Encoding(false));
         }
 
-        private void UpdateTalkButtonVisual()
+        private bool CanPushToTalk()
         {
-            if (_talkButton == null) { return; }
-            _talkButton.Text = T(_talkButtonPressed ? "btn_talking" : "btn_talk");
-            _talkButton.Width = _language == "zh" ? 130 : 135;
-            _talkButton.BackColor = _talkButtonPressed ? Color.FromArgb(35, 123, 86) : SystemColors.Control;
-            _talkButton.ForeColor = _talkButtonPressed ? Color.White : SystemColors.ControlText;
+            return _suiteStateKey == "running" && !_stopInProgress && _microphoneCheck != null && _microphoneCheck.Checked;
+        }
+
+        private void UpdateFloatingWindowButtonVisual()
+        {
+            if (_floatingWindowButton == null || _floatingWindowButton.IsDisposed) { return; }
+            bool open = _floatingTalkForm != null && !_floatingTalkForm.IsDisposed && _floatingTalkForm.Visible;
+            _updatingFloatingWindowButton = true;
+            try
+            {
+                _floatingWindowButton.Text = T("float_label");
+                _floatingWindowButton.Checked = open;
+            }
+            finally
+            {
+                _updatingFloatingWindowButton = false;
+            }
         }
 
         private void UpdateTalkButtonEnabled()
         {
-            if (_talkButton == null) { return; }
-            bool canTalk = _suiteStateKey == "running" && !_stopInProgress && _microphoneCheck != null && _microphoneCheck.Checked;
-            _talkButton.Enabled = canTalk;
+            bool canTalk = CanPushToTalk();
+            if (_floatingTalkForm != null) { _floatingTalkForm.SetTalkEnabled(canTalk); }
             if (!canTalk && _talkButtonPressed)
             {
                 _talkButtonPressed = false;
                 WritePushToTalkControl(false);
+                if (_floatingTalkForm != null) { _floatingTalkForm.SetTalking(false); }
             }
-            UpdateTalkButtonVisual();
         }
 
         private void RefreshAudioDevices(bool showStatus)
@@ -1377,6 +1942,15 @@ namespace SensorBridge.Meeting.App
                 catch { }
                 try { StopSuiteNow(); }
                 catch { }
+                FloatingTalkForm floatingTalkForm = _floatingTalkForm;
+                _floatingTalkForm = null;
+                if (floatingTalkForm != null)
+                {
+                    try { floatingTalkForm.Close(); }
+                    catch { }
+                    try { floatingTalkForm.Dispose(); }
+                    catch { }
+                }
                 if (_toolTip != null) { _toolTip.Dispose(); _toolTip = null; }
                 if (_trayIcon != null) { _trayIcon.Visible = false; _trayIcon.Dispose(); _trayIcon = null; }
                 if (_trayMenu != null) { _trayMenu.Dispose(); _trayMenu = null; }
@@ -1402,9 +1976,8 @@ namespace SensorBridge.Meeting.App
         private void SetButtons(bool enabled)
         {
             _startButton.Enabled = enabled;
-            _checkButton.Enabled = enabled;
-            _docsButton.Enabled = enabled;
             if (_refreshAudioButton != null) { _refreshAudioButton.Enabled = enabled; }
+            if (_floatingWindowButton != null) { _floatingWindowButton.Enabled = true; }
             _stopButton.Enabled = !_stopInProgress;
             UpdateTalkButtonEnabled();
         }

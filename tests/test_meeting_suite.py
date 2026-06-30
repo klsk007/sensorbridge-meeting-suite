@@ -42,16 +42,35 @@ def test_unified_meeting_app_targets_all_three_meeting_devices() -> None:
     assert "DropDownStyle.DropDownList" not in text
     assert "_languageCombo" not in text
     assert "_languageLabel" not in text
-    assert "Start/restart selected" in text
-    assert "Stop and clean processes" in text
-    assert "Check device readiness" in text
-    assert "Open Tencent setup guide" in text
-    assert "Start/restart selected" in text
+    assert 'case "btn_start": return "Start";' in text
+    assert 'case "btn_stop": return "Stop";' in text
+    assert "AddButton(actionRow, delegate { RunReadinessCheck(); })" not in text
+    assert "AddButton(actionRow, delegate { OpenSetupDoc(); })" not in text
+    assert "_talkButton = AddButton(actionRow" not in text
+    assert "PillButton" in text
+    assert "ToggleSwitch" in text
+    assert "Color.FromArgb(52, 199, 89)" in text
     assert "StopSuiteNow();" in text
-    assert "Stop and clean processes" in text
-    assert "btn_talk" in text
-    assert "SetPushToTalk(true)" in text
+    assert "Stop bridge processes started by this project" in text
+    assert "TalkRequested += delegate(bool talking) { SetPushToTalk(talking); }" in text
     assert "SetPushToTalk(false)" in text
+    assert "FloatingTalkForm" in text
+    assert "RoundTalkButton" in text
+    assert "TalkRequested" in text
+    assert "CloseRequested" in text
+    assert "BuildFloatingTalkWindow" in text
+    assert "ToggleFloatingTalkWindow" in text
+    assert "CloseFloatingTalkWindow" in text
+    assert "_floatingWindowButton" in text
+    assert "btn_float_open" in text
+    assert "btn_float_close" in text
+    assert "float_close" in text
+    assert "ContextMenuStrip" in text
+    assert "_floatingTalkForm.SetTalkEnabled(canTalk)" in text
+    assert "_floatingTalkForm.SetTalking(talking)" in text
+    assert "_meetingDevices.Visible = false" in text
+    assert "_details.Visible = false" in text
+    assert "new RowStyle(SizeType.Absolute, 0)" in text
     assert "PushToTalkControlPath" in text
     assert "IEnumerable array = parsed as IEnumerable" in text
     assert "parsed is string" in text
@@ -78,6 +97,8 @@ def test_unified_launcher_starts_camera_microphone_and_speaker_components() -> N
     assert "UTF8Encoding" in text
     assert '"--push-to-talk-control"' in text
     assert '"--push-to-talk-default-muted"' in text
+    assert '"--speaker-push-to-talk-duck-gain"' in text
+    assert '"--speaker-push-to-talk-tail-ms"' in text
     assert 'Name "meeting-media"' in text
     assert "if (-not $UseCombinedBridge -and -not $NoSpeaker)" in text
     assert "combinedAudio" in text
@@ -139,6 +160,8 @@ def test_unified_launcher_starts_camera_microphone_and_speaker_components() -> N
     assert "--no-speaker" in combined
     assert "--push-to-talk-control" in combined
     assert "--push-to-talk-default-muted" in combined
+    assert "--speaker-push-to-talk-duck-gain" in combined
+    assert "--speaker-push-to-talk-tail-ms" in combined
     assert 'pc.addTransceiver("video", direction="recvonly")' in combined
 
 

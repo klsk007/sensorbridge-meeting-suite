@@ -15,6 +15,8 @@ param(
     [double]$NoiseGateThreshold = 0.0,
     [int]$PlaybackPrebufferMs = 2500,
     [double]$SpeakerGain = 0.35,
+    [double]$SpeakerPushToTalkDuckGain = 0.0,
+    [int]$SpeakerPushToTalkTailMs = 1200,
     [switch]$PushToTalk,
     [string]$PushToTalkControlPath = ""
 )
@@ -429,6 +431,12 @@ if ($UseCombinedBridge) {
         $audioArgs += "--push-to-talk-control"
         $audioArgs += $PushToTalkControlPath
         $audioArgs += "--push-to-talk-default-muted"
+        if (-not $NoSpeaker -and $SpeakerMode -eq "webrtc") {
+            $audioArgs += "--speaker-push-to-talk-duck-gain"
+            $audioArgs += "$SpeakerPushToTalkDuckGain"
+            $audioArgs += "--speaker-push-to-talk-tail-ms"
+            $audioArgs += "$SpeakerPushToTalkTailMs"
+        }
     }
     $audioArgs += "webrtc-duplex"
     $audio = Start-BridgeProcess `
