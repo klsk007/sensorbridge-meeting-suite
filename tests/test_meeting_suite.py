@@ -98,8 +98,9 @@ def test_unified_launcher_starts_camera_microphone_and_speaker_components() -> N
     assert "webrtc-duplex" in text
     assert "UseCombinedMedia" in text
     assert "UseCombinedBridge" in text
-    assert "$UseCombinedMedia = (-not $NoCamera -and ($UseWebRtcMicrophone -or $UseWebRtcSpeaker))" in text
+    assert "$UseCombinedMedia = (-not $NoCamera)" in text
     assert "$UseCombinedBridge = ($UseCombinedAudio -or $UseCombinedMedia)" in text
+    assert "if (-not $NoCamera -and -not $UseCombinedBridge)" not in text
     assert '"--no-microphone"' in text
     assert '"--no-speaker"' in text
     assert "PushToTalk" in text
@@ -117,7 +118,6 @@ def test_unified_launcher_starts_camera_microphone_and_speaker_components() -> N
     assert "combinedAudio" in text
     assert "--enable-video" in text
     assert "combinedMedia" in text
-    assert "sensorbridge.py" in text
     assert "bridge.py" in text
     assert "speaker_bridge.py" in text
     assert "pump-vbcable" in text
@@ -131,7 +131,7 @@ def test_unified_launcher_starts_camera_microphone_and_speaker_components() -> N
     assert "Assert-CameraPortAvailable" in text
     assert "Get-NetTCPConnection" in text
     assert "Close the older SensorBridge app" in text
-    assert "if (-not $NoCamera -and -not $UseCombinedBridge)" in text
+    assert "sensorbridge.py" not in text
     assert "CableInputDevice" in text
     assert "SpeakerCaptureDevice" in text
     assert '"--output-device", $CableInputDevice' in text
@@ -147,7 +147,7 @@ def test_unified_launcher_starts_camera_microphone_and_speaker_components() -> N
     assert "Win32_ProcessStartup" in text
     assert "ShowWindow = 0" in text
     assert "Win32_Process" in text
-    assert "sensorbridge-windows-clean\\sensorbridge.py" in text
+    assert "sensorbridge-windows-clean\\sensorbridge.py" not in text
     assert "sensorbridge-microphone-windows\\bridge.py" in text
     assert "sensorbridge-speaker-windows\\speaker_bridge.py" in text
     assert '"bridge.py"' not in text

@@ -414,24 +414,11 @@ $Started = @()
 $UseWebRtcMicrophone = (-not $NoMicrophone -and $MicrophoneMode -eq "webrtc")
 $UseWebRtcSpeaker = (-not $NoSpeaker -and $SpeakerMode -eq "webrtc")
 $UseCombinedAudio = ($UseWebRtcMicrophone -and $UseWebRtcSpeaker)
-$UseCombinedMedia = (-not $NoCamera -and ($UseWebRtcMicrophone -or $UseWebRtcSpeaker))
+$UseCombinedMedia = (-not $NoCamera)
 $UseCombinedBridge = ($UseCombinedAudio -or $UseCombinedMedia)
 
 if ($PushToTalk -and -not $NoMicrophone) {
     Write-PushToTalkControl -Path $PushToTalkControlPath -Talking $false
-}
-
-if (-not $NoCamera -and -not $UseCombinedBridge) {
-    Assert-CameraPortAvailable -Port $CameraPort
-}
-
-if (-not $NoCamera -and -not $UseCombinedBridge) {
-    $camera = Start-BridgeProcess `
-        -Name "camera" `
-        -WorkingDirectory (Join-Path $Root "sensorbridge-windows-clean") `
-        -Arguments @((Join-Path $Root "sensorbridge-windows-clean\sensorbridge.py"), "--port", "$CameraPort", "--upstream-url", $IpadBaseUrl)
-    $camera | Add-Member -NotePropertyName productStart -NotePropertyValue (Start-CameraProductMode -Port $CameraPort -UpstreamBaseUrl $IpadBaseUrl)
-    $Started += $camera
 }
 
 if ($UseCombinedBridge) {
