@@ -371,7 +371,12 @@ namespace SensorBridge.Meeting.Installer
 
         private PythonInfo CheckPythonRuntime()
         {
-            PythonInfo python = TryResolvePython("py.exe", "-3");
+            PythonInfo python = new PythonInfo { Found = false, Command = "", Prefix = "", Version = "" };
+            foreach (string version in new string[] { "3.12", "3.11", "3.10" })
+            {
+                python = TryResolvePython("py.exe", "-" + version);
+                if (python.Found) { break; }
+            }
             if (!python.Found)
             {
                 python = TryResolvePython("python.exe", "");

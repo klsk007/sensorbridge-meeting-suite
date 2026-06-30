@@ -74,6 +74,12 @@ def test_unified_meeting_app_targets_all_three_meeting_devices() -> None:
     assert "PushToTalkControlPath" in text
     assert "IEnumerable array = parsed as IEnumerable" in text
     assert "parsed is string" in text
+    assert "PythonCandidates" in text
+    assert 'Path.Combine(_options.ProjectRoot, "python-3.12.3", "python.exe")' in text
+    assert 'new string[] { "3.12", "3.11", "3.10" }' in text
+    assert 'RunProcessCapture(candidate.File, candidate.Arguments' in text
+    assert 'string[] files = new string[] { "py.exe", "python.exe" }' not in text
+    assert '"-3 -c " + Quote(code)' not in text
 
 
 def test_unified_launcher_starts_camera_microphone_and_speaker_components() -> None:
@@ -81,6 +87,9 @@ def test_unified_launcher_starts_camera_microphone_and_speaker_components() -> N
     text = launcher.read_text(encoding="utf-8")
     readiness = (ROOT / "meeting-suite" / "Test-SensorBridgeMeeting.ps1").read_text(encoding="utf-8")
     combined = (ROOT / "meeting-suite" / "meeting_audio_bridge.py").read_text(encoding="utf-8")
+    microphone_webrtc = (
+        ROOT / "sensorbridge-microphone-windows" / "bridgeclient" / "webrtc_microphone.py"
+    ).read_text(encoding="utf-8")
 
     assert "sensorbridge-windows-clean" in text
     assert "sensorbridge-microphone-windows" in text
@@ -94,6 +103,10 @@ def test_unified_launcher_starts_camera_microphone_and_speaker_components() -> N
     assert '"--no-microphone"' in text
     assert '"--no-speaker"' in text
     assert "PushToTalk" in text
+    assert "Test-PythonBridgeRuntime" in text
+    assert 'Join-Path $Root "python-3.12.3\\python.exe"' in text
+    assert 'foreach ($version in @("3.12", "3.11", "3.10"))' in text
+    assert "aiortc" in text
     assert "UTF8Encoding" in text
     assert '"--push-to-talk-control"' in text
     assert '"--push-to-talk-default-muted"' in text
@@ -124,7 +137,10 @@ def test_unified_launcher_starts_camera_microphone_and_speaker_components() -> N
     assert '"--output-device", $CableInputDevice' in text
     assert '"--capture-device", $SpeakerCaptureDevice' in text
     assert "Resolve-PythonInvocation" in readiness
-    assert readiness.index('Test-CommandAvailable "py"') < readiness.index('Test-CommandAvailable "python"')
+    assert 'Join-Path $Root "python-3.12.3\\python.exe"' in readiness
+    assert 'foreach ($version in @("3.12", "3.11", "3.10"))' in readiness
+    assert "pythonRuntime" in readiness
+    assert '@("-3")' not in readiness
     assert "microphoneBridgePlaybackDevice" in readiness
     assert "speakerBridgeCaptureDevice" in readiness
     assert "Start-DetachedProcess" in text
@@ -139,6 +155,10 @@ def test_unified_launcher_starts_camera_microphone_and_speaker_components() -> N
     assert "single_webrtc_peer_connection" in combined
     assert "CableOutputAudioTrack" in combined
     assert "_consume_audio_track" in combined
+    assert "_apply_polled_ice_candidates(pc, client, warnings)" in combined
+    assert "_has_status_value" in combined
+    assert "await pc.addIceCandidate(candidate)" in microphone_webrtc
+    assert "candidate_from_sdp" in microphone_webrtc
     assert "FrameFileVideoSink" in combined
     assert "transportOk" in combined
     assert "microphoneOk" in combined
@@ -267,6 +287,9 @@ def test_gui_installer_exposes_copyable_vbcable_help() -> None:
     assert "BundledPythonVersion = '3.12.3'" in install_script
     assert "Install-BundledPythonRuntime" in install_script
     assert "Resolve-BundledPythonCommand" in install_script
+    assert "Resolve-BundledPythonCommand -Root $targetRoot" in install_script
+    assert "foreach ($minor in @('3.12', '3.11', '3.10'))" in install_script
+    assert "Prefix = @('-3')" not in install_script
     assert "BundledPythonPackageName = \"python-$BundledPythonVersion.nupkg\"" in install_script
     assert "prerequisites\\$BundledPythonPackageName" in install_script
     assert "ZipFile]::ExtractToDirectory" in install_script
@@ -276,6 +299,8 @@ def test_gui_installer_exposes_copyable_vbcable_help() -> None:
     assert "因第三方驱动授权限制" in installer
     assert "PythonRuntimeVersion = '3.12.3'" in package_script
     assert "python-$Version.nupkg" in package_script
+    assert "foreach ($minor in @('3.12', '3.11', '3.10'))" in package_script
+    assert "Prefix = @('-3')" not in package_script
     assert "Invoke-PythonRuntimeDownload" in package_script
     assert "python-runtime-cache" in package_script
     assert "--no-index" in install_script

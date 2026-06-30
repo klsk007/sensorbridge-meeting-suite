@@ -47,21 +47,54 @@ function Write-PushToTalkControl {
     [System.IO.File]::WriteAllText($Path, $payload, [System.Text.UTF8Encoding]::new($false))
 }
 
+function Test-PythonBridgeRuntime {
+    param([string]$File)
+
+    if (-not $File -or -not (Test-Path $File)) { return $false }
+    $code = @"
+import importlib.util, sys
+required = ['aiortc', 'av', 'numpy', 'sounddevice']
+ok = sys.version_info >= (3, 10) and all(importlib.util.find_spec(name) is not None for name in required)
+raise SystemExit(0 if ok else 1)
+"@
+    & $File -c $code 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
 function Resolve-PythonCommand {
+    $candidates = @()
+    $bundled = Join-Path $Root "python-3.12.3\python.exe"
+    if (Test-Path $bundled) {
+        $candidates += $bundled
+    }
+
     $py = Get-Command py -ErrorAction SilentlyContinue
     if ($py) {
-        $executable = & $py.Source -3 -c "import sys; print(sys.executable)" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $executable -and (Test-Path $executable.Trim())) {
-            return @{ File = $executable.Trim(); Prefix = @() }
+        foreach ($version in @("3.12", "3.11", "3.10")) {
+            $executable = $null
+            try {
+                $executable = & $py.Source "-$version" -c "import sys; print(sys.executable)" 2>$null
+            } catch {
+                $executable = $null
+            }
+            if ($LASTEXITCODE -eq 0 -and $executable -and (Test-Path $executable.Trim())) {
+                $candidates += $executable.Trim()
+            }
         }
     }
 
     $python = Get-Command python -ErrorAction SilentlyContinue
     if ($python) {
-        return @{ File = $python.Source; Prefix = @() }
+        $candidates += $python.Source
     }
 
-    throw "Python was not found. Install Python 3.10+ or add it to PATH."
+    foreach ($candidate in @($candidates | Select-Object -Unique)) {
+        if (Test-PythonBridgeRuntime -File $candidate) {
+            return @{ File = $candidate; Prefix = @() }
+        }
+    }
+
+    throw "Python bridge runtime was not found. Install with the v1.01+ installer, or use Python 3.10+ with aiortc, av, numpy, and sounddevice installed."
 }
 
 function Quote-ProcessArgument {

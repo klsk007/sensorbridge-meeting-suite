@@ -74,6 +74,10 @@ def _is_error_state(value: Any) -> bool:
     return str(value or "").lower() in {"error", "failed", "disconnected", "closed"}
 
 
+def _has_status_value(mapping: dict[str, Any], key: str) -> bool:
+    return key in mapping and mapping.get(key) is not None
+
+
 def _exception_summary(exc: BaseException) -> str:
     message = str(exc)
     if message:
@@ -258,17 +262,35 @@ async def run_duplex(args: argparse.Namespace) -> dict[str, Any]:
     speaker = _speaker_downlink_status(final_status)
     microphone_ok = True
     if microphone_enabled:
+        microphone_stats_available = (
+            _has_status_value(microphone, "microphoneUpstreamStatsFresh")
+            or _has_status_value(microphone, "microphoneUpstreamPacketsSent")
+        )
+        microphone_stats_ok = True
+        if microphone_stats_available:
+            microphone_stats_ok = bool(
+                microphone.get("microphoneUpstreamStatsFresh") is True
+                and int(microphone.get("microphoneUpstreamPacketsSent") or 0) > 0
+            )
         microphone_ok = bool(
-            microphone.get("microphoneUpstreamStatsFresh") is True
-            and int(microphone.get("microphoneUpstreamPacketsSent") or 0) > 0
+            microphone_stats_ok
             and receiver.receiver_state == "receiving_webrtc_opus"
             and receiver.audio_frames_written > 0
         )
     speaker_ok = True
     if speaker_enabled:
+        speaker_stats_available = (
+            _has_status_value(speaker, "speakerDownlinkStatsFresh")
+            or _has_status_value(speaker, "speakerDownlinkPacketsReceived")
+        )
+        speaker_stats_ok = True
+        if speaker_stats_available:
+            speaker_stats_ok = bool(
+                speaker.get("speakerDownlinkStatsFresh") is True
+                and int(speaker.get("speakerDownlinkPacketsReceived") or 0) > 0
+            )
         speaker_ok = bool(
-            speaker.get("speakerDownlinkStatsFresh") is True
-            and int(speaker.get("speakerDownlinkPacketsReceived") or 0) > 0
+            speaker_stats_ok
             and outbound_packets > 0
         )
     camera_ok = True

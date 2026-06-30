@@ -14,13 +14,51 @@ function Test-CommandAvailable {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Test-PythonBridgeRuntime {
+    param([string]$File)
+
+    if (-not $File -or -not (Test-Path $File)) { return $false }
+    $code = @"
+import importlib.util, sys
+required = ['sounddevice']
+ok = sys.version_info >= (3, 10) and all(importlib.util.find_spec(name) is not None for name in required)
+raise SystemExit(0 if ok else 1)
+"@
+    & $File -c $code 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
 function Resolve-PythonInvocation {
-    if (Test-CommandAvailable "py") {
-        return @{ File = "py"; Prefix = @("-3") }
+    $candidates = @()
+    $bundled = Join-Path $Root "python-3.12.3\python.exe"
+    if (Test-Path $bundled) {
+        $candidates += $bundled
     }
 
-    if (Test-CommandAvailable "python") {
-        return @{ File = "python"; Prefix = @() }
+    $py = Get-Command py -ErrorAction SilentlyContinue
+    if ($py) {
+        foreach ($version in @("3.12", "3.11", "3.10")) {
+            $executable = $null
+            try {
+                $executable = & $py.Source "-$version" -c "import sys; print(sys.executable)" 2>$null
+            } catch {
+                $executable = $null
+            }
+            if ($LASTEXITCODE -eq 0 -and $executable -and (Test-Path $executable.Trim())) {
+                $candidates += $executable.Trim()
+            }
+        }
+    }
+
+    $python = Get-Command python -ErrorAction SilentlyContinue
+    if ($python) {
+        $candidates += $python.Source
+    }
+
+    foreach ($candidate in @($candidates | Select-Object -Unique)) {
+        if (Test-PythonBridgeRuntime -File $candidate) {
+            return @{ File = $candidate; Prefix = @(); Version = (& $candidate -c "import sys; print('%d.%d.%d' % sys.version_info[:3])" 2>$null) }
+        }
     }
 
     return $null
@@ -59,6 +97,7 @@ $checks = [ordered]@{
     root = $Root
     pythonOnPath = (Test-CommandAvailable "python")
     pyLauncherOnPath = (Test-CommandAvailable "py")
+    pythonRuntime = if ($PythonInvocation) { [ordered]@{ found = $true; file = $PythonInvocation.File; version = $PythonInvocation.Version } } else { [ordered]@{ found = $false; file = $null; version = $null } }
     components = [ordered]@{
         camera = (Test-Path (Join-Path $Root "sensorbridge-windows-clean\sensorbridge.py"))
         microphone = (Test-Path (Join-Path $Root "sensorbridge-microphone-windows\bridge.py"))

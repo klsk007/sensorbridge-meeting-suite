@@ -59,10 +59,19 @@ function Resolve-PythonCommand {
   $py = Get-Command py -ErrorAction SilentlyContinue
   if ($py) {
     try {
-      $exe = & $py.Source -3 -c "import sys; print(sys.executable)" 2>$null
-      $version = & $py.Source -3 -c "import sys; print('%d.%d.%d' % sys.version_info[:3])" 2>$null
-      if ($LASTEXITCODE -eq 0 -and $exe -and (Test-Path $exe.Trim()) -and (Test-PythonVersionAtLeast -Version $version -Minimum '3.10.0')) {
-        return @{ File = $py.Source; Prefix = @('-3'); Version = "$version"; Source = 'py' }
+      foreach ($minor in @('3.12', '3.11', '3.10')) {
+        $exe = $null
+        $version = $null
+        try {
+          $exe = & $py.Source "-$minor" -c "import sys; print(sys.executable)" 2>$null
+          $version = & $py.Source "-$minor" -c "import sys; print('%d.%d.%d' % sys.version_info[:3])" 2>$null
+        } catch {
+          $exe = $null
+          $version = $null
+        }
+        if ($LASTEXITCODE -eq 0 -and $exe -and (Test-Path $exe.Trim()) -and (Test-PythonVersionAtLeast -Version $version -Minimum '3.10.0')) {
+          return @{ File = $exe.Trim(); Prefix = @(); Version = "$version"; Source = "py-$minor" }
+        }
       }
     } catch {
     }
@@ -400,7 +409,10 @@ if (-not $NoShortcuts) {
   Write-InstallerProgress -Percent 42 -Message 'Skipping shortcuts'
 }
 
-$python = Resolve-PythonCommand
+$python = Resolve-BundledPythonCommand -Root $targetRoot
+if (-not $python) {
+  $python = Resolve-PythonCommand
+}
 $pythonRuntimeInstall = $null
 $pipInstall = $null
 if ($InstallPythonDeps) {

@@ -668,6 +668,18 @@ namespace SensorBridge.Meeting.App
             public string Error = "";
         }
 
+        private sealed class PythonCandidate
+        {
+            public readonly string File;
+            public readonly string Arguments;
+
+            public PythonCandidate(string file, string arguments)
+            {
+                File = file;
+                Arguments = arguments;
+            }
+        }
+
         public MainForm(AppOptions options)
         {
             _options = options;
@@ -1345,14 +1357,13 @@ namespace SensorBridge.Meeting.App
         private AudioDeviceLists LoadAudioDevices()
         {
             string code = "import json,sounddevice as sd;hs=sd.query_hostapis();print(json.dumps([{'index':i,'name':str(d.get('name','')),'hostapi_name':str(hs[int(d.get('hostapi',-1) or -1)].get('name','')) if 0 <= int(d.get('hostapi',-1) or -1) < len(hs) else '','max_input_channels':int(d.get('max_input_channels',0) or 0),'max_output_channels':int(d.get('max_output_channels',0) or 0),'default_samplerate':float(d.get('default_samplerate',0) or 0)} for i,d in enumerate(sd.query_devices())]))";
-            string[] files = new string[] { "py.exe", "python.exe" };
-            string[] arguments = new string[] { "-3 -c " + Quote(code), "-c " + Quote(code) };
+            List<PythonCandidate> candidates = PythonCandidates("-c " + Quote(code));
             Exception lastError = null;
-            for (int i = 0; i < files.Length; i++)
+            foreach (PythonCandidate candidate in candidates)
             {
                 try
                 {
-                    ProcessCaptureResult result = RunProcessCapture(files[i], arguments[i], _options.ProjectRoot, 15000);
+                    ProcessCaptureResult result = RunProcessCapture(candidate.File, candidate.Arguments, _options.ProjectRoot, 15000);
                     if (result.ExitCode == 0 && !String.IsNullOrWhiteSpace(result.Output))
                     {
                         return ParseAudioDevices(result.Output);
@@ -1365,6 +1376,77 @@ namespace SensorBridge.Meeting.App
                 }
             }
             throw new InvalidOperationException(lastError == null ? "Python sounddevice did not return audio devices." : lastError.Message);
+        }
+
+        private List<PythonCandidate> PythonCandidates(string scriptArguments)
+        {
+            List<PythonCandidate> candidates = new List<PythonCandidate>();
+            string bundled = Path.Combine(_options.ProjectRoot, "python-3.12.3", "python.exe");
+            if (File.Exists(bundled))
+            {
+                candidates.Add(new PythonCandidate(bundled, scriptArguments));
+            }
+
+            foreach (string version in new string[] { "3.12", "3.11", "3.10" })
+            {
+                string discovered = DiscoverPythonFromLauncher(version);
+                if (!String.IsNullOrWhiteSpace(discovered) && File.Exists(discovered))
+                {
+                    candidates.Add(new PythonCandidate(discovered, scriptArguments));
+                }
+            }
+
+            string pathPython = DiscoverPythonFromPath();
+            if (!String.IsNullOrWhiteSpace(pathPython) && File.Exists(pathPython))
+            {
+                candidates.Add(new PythonCandidate(pathPython, scriptArguments));
+            }
+            return candidates;
+        }
+
+        private string DiscoverPythonFromLauncher(string version)
+        {
+            try
+            {
+                ProcessCaptureResult result = RunProcessCapture("py.exe", "-" + version + " -c " + Quote("import sys; print(sys.executable)"), _options.ProjectRoot, 8000);
+                string path = FirstOutputLine(result.Output);
+                return result.ExitCode == 0 && File.Exists(path) && IsUsablePython(path) ? path : "";
+            }
+            catch { return ""; }
+        }
+
+        private string DiscoverPythonFromPath()
+        {
+            try
+            {
+                ProcessCaptureResult where = RunProcessCapture("where.exe", "python.exe", _options.ProjectRoot, 8000);
+                if (where.ExitCode != 0) { return ""; }
+                foreach (string raw in where.Output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string path = raw.Trim();
+                    if (File.Exists(path) && IsUsablePython(path)) { return path; }
+                }
+            }
+            catch { }
+            return "";
+        }
+
+        private bool IsUsablePython(string path)
+        {
+            string code = "import importlib.util,sys;mods=['sounddevice'];ok=sys.version_info>=(3,10) and all(importlib.util.find_spec(m) is not None for m in mods);raise SystemExit(0 if ok else 1)";
+            try
+            {
+                ProcessCaptureResult result = RunProcessCapture(path, "-c " + Quote(code), _options.ProjectRoot, 8000);
+                return result.ExitCode == 0;
+            }
+            catch { return false; }
+        }
+
+        private static string FirstOutputLine(string output)
+        {
+            if (String.IsNullOrWhiteSpace(output)) { return ""; }
+            string[] lines = output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            return lines.Length == 0 ? "" : lines[0].Trim();
         }
 
         private AudioDeviceLists ParseAudioDevices(string json)

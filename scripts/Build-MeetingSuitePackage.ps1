@@ -151,14 +151,49 @@ function Copy-RootFile {
 }
 
 function Resolve-PythonCommand {
+  $candidates = @()
   $py = Get-Command py -ErrorAction SilentlyContinue
   if ($py) {
-    return @{ File = $py.Source; Prefix = @('-3') }
+    foreach ($minor in @('3.12', '3.11', '3.10')) {
+      $exe = $null
+      try {
+        $exe = & $py.Source "-$minor" -c "import sys; print(sys.executable)" 2>$null
+      } catch {
+        $exe = $null
+      }
+      if ($LASTEXITCODE -eq 0 -and $exe -and (Test-Path $exe.Trim())) {
+        $candidates += $exe.Trim()
+      }
+    }
+  }
+
+  foreach ($candidate in @(
+    (Join-Path $env:USERPROFILE 'miniconda3\python.exe'),
+    (Join-Path $env:USERPROFILE 'anaconda3\python.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python310\python.exe')
+  )) {
+    if ($candidate -and (Test-Path $candidate)) {
+      $candidates += $candidate
+    }
   }
 
   $python = Get-Command python -ErrorAction SilentlyContinue
   if ($python) {
-    return @{ File = $python.Source; Prefix = @() }
+    $candidates += $python.Source
+  }
+
+  foreach ($candidate in @($candidates | Select-Object -Unique)) {
+    $pipVersion = $null
+    try {
+      $pipVersion = & $candidate -m pip --version 2>$null
+    } catch {
+      $pipVersion = $null
+    }
+    if ($LASTEXITCODE -eq 0 -and $pipVersion) {
+      return @{ File = $candidate; Prefix = @() }
+    }
   }
 
   return $null

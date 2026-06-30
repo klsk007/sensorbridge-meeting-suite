@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from speaker_bridge import normalize_command
 from speakerclient.bridge import SpeakerBridgeResult, SpeakerClient
+from pathlib import Path
+
 from speakerclient.webrtc_downlink import WebRTCSpeakerResult, _push_to_talk_speaker_gain
 
 
@@ -77,3 +79,13 @@ def test_push_to_talk_ducks_speaker_during_talk_and_release_tail(tmp_path) -> No
         state=state,
         now=2.4,
     ) == 0.4
+
+
+def test_webrtc_speaker_applies_polled_ipad_ice_candidates() -> None:
+    source = Path(__file__).resolve().parents[1] / "speakerclient" / "webrtc_downlink.py"
+    text = source.read_text(encoding="utf-8")
+
+    assert "/api/v2/webrtc/local-ice-candidates" in text
+    assert "_apply_polled_ice_candidates(pc, client, warnings)" in text
+    assert "candidate_from_sdp" in text
+    assert "await pc.addIceCandidate(candidate)" in text

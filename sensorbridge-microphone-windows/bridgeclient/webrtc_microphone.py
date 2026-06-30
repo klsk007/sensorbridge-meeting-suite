@@ -2131,17 +2131,52 @@ async def _wait_for_ice_gathering_complete(pc: Any, *, timeout_seconds: float) -
 
 
 async def _apply_polled_ice_candidates(pc: Any, client: WebRTCMicrophoneClient, warnings: list[str]) -> None:
-    try:
-        payload = client.local_ice_candidates()
-    except Exception as exc:
-        warnings.append(f"polling iPad ICE candidates failed: {exc}")
-        return
-    candidates = payload.get("localIceCandidates") or []
-    if isinstance(candidates, dict):
-        candidates = [candidates]
-    # aiortc can connect with candidates embedded in the SDP answer. The poll is
-    # kept for contract coverage and future trickle candidates.
-    _ = (pc, candidates)
+    from aiortc.sdp import candidate_from_sdp
+
+    seen: set[str] = set()
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        try:
+            payload = client.local_ice_candidates()
+        except Exception as exc:
+            warnings.append(f"polling iPad ICE candidates failed: {exc}")
+            return
+        candidates = payload.get("localIceCandidates") or []
+        if isinstance(candidates, dict):
+            candidates = [candidates]
+        added = 0
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            raw_candidate = str(item.get("candidate") or "").strip()
+            if not raw_candidate:
+                continue
+            candidate_key = "|".join(
+                [
+                    raw_candidate,
+                    str(item.get("sdpMid") or ""),
+                    str(item.get("sdpMLineIndex") if item.get("sdpMLineIndex") is not None else ""),
+                ]
+            )
+            if candidate_key in seen:
+                continue
+            seen.add(candidate_key)
+            candidate_sdp = raw_candidate.removeprefix("candidate:")
+            try:
+                candidate = candidate_from_sdp(candidate_sdp)
+                if item.get("sdpMid") is not None:
+                    candidate.sdpMid = str(item.get("sdpMid"))
+                if item.get("sdpMLineIndex") is not None:
+                    candidate.sdpMLineIndex = int(item.get("sdpMLineIndex"))
+                await pc.addIceCandidate(candidate)
+                added += 1
+            except Exception as exc:
+                warnings.append(f"adding iPad ICE candidate failed: {exc}")
+        if added > 0:
+            await asyncio.sleep(0.25)
+        if candidates and time.monotonic() > deadline - 3.0:
+            return
+        await asyncio.sleep(0.25)
 
 
 def _extract_description(payload: JsonDict) -> JsonDict | None:

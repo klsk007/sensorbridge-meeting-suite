@@ -105,6 +105,9 @@ class WebRTCSpeakerClient:
     def status(self) -> JsonDict:
         return self.request_json("GET", "/api/v2/webrtc/status")
 
+    def local_ice_candidates(self) -> JsonDict:
+        return self.request_json("GET", "/api/v2/webrtc/local-ice-candidates")
+
 
 class CableOutputAudioTrack(MediaStreamTrack):  # type: ignore[misc,valid-type]
     kind = "audio"
@@ -245,6 +248,7 @@ async def run_webrtc_speaker_downlink_async(
         if answer is None:
             raise RuntimeError(f"WebRTC offer response did not include localDescription answer: {answer_payload}")
         await pc.setRemoteDescription(RTCSessionDescription(sdp=answer["sdp"], type=answer["type"]))
+        await _apply_polled_ice_candidates(pc, client, warnings)
         deadline = None if duration_seconds <= 0 else time.monotonic() + max(1.0, duration_seconds)
         last_status_at = 0.0
         while deadline is None or time.monotonic() < deadline:
@@ -353,6 +357,55 @@ async def _wait_for_ice_gathering_complete(pc: Any, *, timeout_seconds: float) -
     deadline = time.monotonic() + timeout_seconds
     while pc.iceGatheringState != "complete" and time.monotonic() < deadline:
         await asyncio.sleep(0.05)
+
+
+async def _apply_polled_ice_candidates(pc: Any, client: WebRTCSpeakerClient, warnings: list[str]) -> None:
+    from aiortc.sdp import candidate_from_sdp
+
+    seen: set[str] = set()
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        try:
+            payload = client.local_ice_candidates()
+        except Exception as exc:
+            warnings.append(f"polling iPad ICE candidates failed: {exc}")
+            return
+        candidates = payload.get("localIceCandidates") or []
+        if isinstance(candidates, dict):
+            candidates = [candidates]
+        added = 0
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            raw_candidate = str(item.get("candidate") or "").strip()
+            if not raw_candidate:
+                continue
+            candidate_key = "|".join(
+                [
+                    raw_candidate,
+                    str(item.get("sdpMid") or ""),
+                    str(item.get("sdpMLineIndex") if item.get("sdpMLineIndex") is not None else ""),
+                ]
+            )
+            if candidate_key in seen:
+                continue
+            seen.add(candidate_key)
+            candidate_sdp = raw_candidate.removeprefix("candidate:")
+            try:
+                candidate = candidate_from_sdp(candidate_sdp)
+                if item.get("sdpMid") is not None:
+                    candidate.sdpMid = str(item.get("sdpMid"))
+                if item.get("sdpMLineIndex") is not None:
+                    candidate.sdpMLineIndex = int(item.get("sdpMLineIndex"))
+                await pc.addIceCandidate(candidate)
+                added += 1
+            except Exception as exc:
+                warnings.append(f"adding iPad ICE candidate failed: {exc}")
+        if added > 0:
+            await asyncio.sleep(0.25)
+        if candidates and time.monotonic() > deadline - 3.0:
+            return
+        await asyncio.sleep(0.25)
 
 
 def _extract_description(payload: JsonDict) -> JsonDict | None:
